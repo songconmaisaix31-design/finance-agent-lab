@@ -1,0 +1,41 @@
+food_delivery_categories:
+  zhuansong_pintuan:
+    delivery_method: "蜂鸟团队"
+    service_package: "城代拼团"
+    unit_cost: 2.0
+  zhuansong_normal:
+    delivery_method: "蜂鸟团队"
+    service_package: "代理商E配送"
+    unit_cost: 4.0
+  zhongbao_pintuan:
+    delivery_method: "蜂鸟众包"
+    service_package: "城代拼团"
+  zhongbao_normal:
+    delivery_method: "蜂鸟众包"
+    service_package: "代理商E配送"
+
+retail_delivery_categories:
+  zhuansong_pintuan:
+    delivery_method: "蜂鸟团队"
+    service_package: "拼团-代零单拼、拼团-代零多拼"
+    unit_cost: 2.0
+  zhuansong_normal:
+    delivery_method: "蜂鸟团队"
+    service_package: "代理商新零售超客配"
+    unit_cost: 4.0
+  zhongbao_pintuan:
+    delivery_method: "蜂鸟众包"
+    service_package: "拼团-代零单拼、拼团-代零多拼"
+  zhongbao_normal:
+    delivery_method: "蜂鸟众包"
+    service_package: "代理商新零售超客配"
+    unit_cost: 3.5
+
+crowd_cost_matching:
+  join_field: "order_id"
+  cost_field: "total_cost"
+  capacity_line_field: "capacity_line"
+  food_filter:
+    is_retail: 0
+  retail_filter:
+    is_retail: 1

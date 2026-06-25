@@ -1,0 +1,58 @@
+food_billing:
+  header_row: 4
+  data_start_row: 5
+  sheet: "Sheet0"
+  columns:
+    bill_date: 1
+    settlement_amount: 2
+    fund_pool_id: 3
+    bill_type: 4
+    business_type: 5
+    order_id: 6
+    order_type: 7
+    delivery_method: 8
+    service_package: 9
+    merchant_id: 10
+    merchant_name: 11
+    order_complete_time: 12
+    service_fee_income: 13
+    gross_transaction: 31
+    net_transaction: 32
+
+retail_billing:
+  header_row: 4
+  data_start_row: 5
+  sheet: "Sheet0"
+  columns:
+    bill_date: 1
+    settlement_amount: 2
+    order_id: 3
+    fund_pool_id: 4
+    bill_type: 5
+    business_type: 6
+    order_type: 7
+    delivery_method: 8
+    service_package: 9
+    merchant_id: 10
+    merchant_name: 11
+    order_complete_time: 12
+    service_fee_income: 13
+    gross_transaction: 34
+    net_transaction: 35
+
+crowd_cost:
+  header_row: 1
+  data_start_row: 2
+  sheet: "data"
+  columns:
+    date: 1
+    waybill_end_time: 2
+    waybill_id: 3
+    order_id: 4
+    order_source: 5
+    capacity_line: 6
+    is_uplus: 7
+    delivery_status: 8
+    is_retail: 9
+    total_cost: 33
+    is_pintuan: 144

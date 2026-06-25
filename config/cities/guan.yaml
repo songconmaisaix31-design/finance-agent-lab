@@ -1,0 +1,113 @@
+city_name: 固安
+agent_id: "342"
+billing_date: "2026-06-23"
+
+headquarters_fee_rate: "0.01"
+
+team_delivery:
+  group_unit_cost: "4.60"
+  normal_unit_cost: "4.60"
+
+food_income_whitelist:
+  - service_package: "代理商E配送"
+  - service_package: "城代拼团"
+  - service_package: "城代选推"
+  - service_package: "代理商E基础KA"
+  - service_package: "城代拼团到店自取"
+  - service_package: "城代到店自取"
+  - service_package: "代理商E基础"
+
+retail_income_whitelist:
+  - service_package: "城代e配送"
+  - service_package: "城代到店自取KA"
+  - service_package: "代理商e基础"
+  - service_package: "代理商e配送KA"
+  - service_package: "代理商新零售超客配KA"
+  - service_package: "拼团-代零单拼、拼团-代零多拼"
+
+food_delivery_categories:
+  team_group:
+    delivery_method: "蜂鸟团队"
+    service_packages:
+      - "城代拼团"
+  team_normal:
+    delivery_method: "蜂鸟团队"
+    service_packages:
+      - "代理商E配送"
+      - "代理商E配送KA"
+  crowd_group:
+    delivery_method: "蜂鸟众包"
+    service_packages:
+      - "城代拼团"
+  crowd_normal:
+    delivery_method: "蜂鸟众包"
+    service_packages:
+      - "代理商E配送"
+      - "代理商E配送KA"
+
+retail_delivery_categories:
+  team_group:
+    delivery_method: "蜂鸟团队"
+    service_packages:
+      - "拼团-代零单拼、拼团-代零多拼"
+  team_normal:
+    delivery_method: "蜂鸟团队"
+    service_packages:
+      - "城代e配送"
+      - "代理商e配送KA"
+      - "代理商新零售超客配"
+      - "代理商新零售超客配KA"
+  crowd_group:
+    delivery_method: "蜂鸟众包"
+    service_packages:
+      - "拼团-代零单拼、拼团-代零多拼"
+  crowd_normal:
+    delivery_method: "蜂鸟众包"
+    service_packages:
+      - "城代e配送"
+      - "代理商e配送KA"
+      - "代理商新零售超客配"
+      - "代理商新零售超客配KA"
+
+crowd_cost:
+  file_name: "6.23众包成本.xlsx"
+  detail_sheet: "月"
+  check_sheet: "整体"
+  reference_sheet: "周对比"
+  per_order_rate: "3.76"
+  rate_source: "周对比第二周(2026/6/8-6/14)单均邮资"
+
+  filters:
+    date: "2026-06-23"
+    delivery_status: "配送成功"
+    city_name: "固安"
+
+  field_names:
+    date: "日期"
+    delivery_status: "配送状态"
+    is_retail: "是否零售"
+    city: "合并区县名称"
+    is_group_order: "is_group_order"
+    completed_orders: "有效完成单"
+    total_cost: "总成本"
+
+  category_mapping:
+    catering_normal:
+      is_retail: 0
+      is_group_order: 0
+    catering_group:
+      is_retail: 0
+      is_group_order: 1
+    retail_normal:
+      is_retail: 1
+      is_group_order: 0
+    retail_group:
+      is_retail: 1
+      is_group_order: 1
+
+reconciliation:
+  amount_tolerance: "0.01"
+  order_count_tolerance: "0"
+
+bill_count_mismatch_policy: warning
+table_reconciliation_policy: fail
