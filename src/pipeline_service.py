@@ -17,6 +17,10 @@ from .income_calc import compute_income
 from .manifest import sha256_file
 from .normalizer import load_billing_rows
 from .reconcile import run_all_checks
+from .reconciliation_contract import (
+    build_reconciliation_contract,
+    build_reconciliation_report,
+)
 from .report import generate_report
 from .result_contract import (
     atomic_write_json,
@@ -207,6 +211,7 @@ def run_request(request: RunRequest) -> PipelineResult:
         }
         atomic_write_json(run_dir / "unknown-types.json", unknown_doc)
 
+        logger.event("info", "reconciliation_started", "reconciliation", "started")
         summary = _build_result_summary(
             run_id, profile, status, pipeline_data, unknown_income_count,
             unknown_delivery_count, artifact_entries, started,
@@ -216,13 +221,64 @@ def run_request(request: RunRequest) -> PipelineResult:
             before_manifest, artifact_entries, exit_code, error_code,
             error_message, logger.stage_names,
         )
+        reconciliation = build_reconciliation_contract(
+            summary=summary,
+            manifest=manifest,
+            run_dir=run_dir,
+            request_context=_reconciliation_context(run_id, profile, request, status),
+            input_before=before_manifest,
+            input_after=after_manifest,
+        )
+
+        if status == "success" and reconciliation["status"] in {"failed", "blocked"}:
+            status = "blocked" if reconciliation["status"] == "blocked" else "failed"
+            exit_code = 5 if status == "blocked" else 6
+            error_code = "RECON_UPSTREAM_BLOCKED" if status == "blocked" else "RECONCILIATION_FAILED"
+            error_message = "Reconciliation blocked" if status == "blocked" else "Reconciliation failed"
+            summary = _build_result_summary(
+                run_id, profile, status, pipeline_data, unknown_income_count,
+                unknown_delivery_count, artifact_entries, started,
+            )
+            manifest = _build_run_manifest(
+                run_id, profile, request, status, started, utc_now_iso(),
+                before_manifest, artifact_entries, exit_code, error_code,
+                error_message, logger.stage_names,
+            )
+            reconciliation = build_reconciliation_contract(
+                summary=summary,
+                manifest=manifest,
+                run_dir=run_dir,
+                request_context=_reconciliation_context(run_id, profile, request, status),
+                input_before=before_manifest,
+                input_after=after_manifest,
+            )
+
+        _attach_reconciliation(summary, reconciliation)
+        for check in reconciliation["checks"]:
+            level = "error" if check["status"] in {"fail", "blocked"} else "info"
+            logger.event(
+                level,
+                "reconciliation_check_completed",
+                "reconciliation",
+                check["status"],
+                check.get("error_code"),
+                check_id=check["check_id"],
+                category=check["category"],
+            )
+        if reconciliation["status"] == "blocked":
+            logger.event("error", "reconciliation_blocked", "reconciliation", "blocked", "RECON_UPSTREAM_BLOCKED")
+        elif reconciliation["status"] == "failed":
+            logger.event("error", "reconciliation_failed", "reconciliation", "failed", "RECONCILIATION_FAILED")
+        logger.event("info", "reconciliation_completed", "reconciliation", reconciliation["status"])
 
         summary = json_safe(summary)
         manifest = json_safe(manifest)
+        reconciliation_report = json_safe(build_reconciliation_report(run_id, reconciliation))
         validate_contract("run-result.schema.json", summary)
         validate_contract("run-manifest.schema.json", manifest)
         atomic_write_json(run_dir / "result-summary.json", summary)
         atomic_write_json(run_dir / "run-manifest.json", manifest)
+        atomic_write_json(run_dir / "reconciliation-report.json", reconciliation_report)
         logger.event("info", "contracts_written", "contract", "success")
 
     except Exception as exc:
@@ -569,6 +625,34 @@ def _build_run_manifest(
     }
 
 
+def _reconciliation_context(run_id: str, profile: CityProfile, request: RunRequest, status: str) -> dict:
+    return {
+        "run_id": run_id,
+        "city_id": profile.city_id,
+        "status": status,
+        "config_sha256": profile.config_sha256,
+        "unknown_type_policy": request.unknown_type_policy,
+    }
+
+
+def _attach_reconciliation(summary: dict, reconciliation: dict):
+    summary["reconciliation"] = reconciliation
+    recon_errors = reconciliation["summary"]["failed"] + reconciliation["summary"]["blocked"]
+    summary["validation"]["reconciliation_errors"] = recon_errors
+    summary["validation"]["warnings"] += len(reconciliation.get("warnings", []))
+    if reconciliation["status"] == "passed":
+        if reconciliation["summary"].get("not_implemented", 0):
+            summary["capabilities"]["reconciliation"] = "technical_passed_business_unverified"
+        else:
+            summary["capabilities"]["reconciliation"] = "passed"
+    elif reconciliation["status"] == "blocked":
+        summary["capabilities"]["reconciliation"] = "blocked"
+    elif reconciliation["status"] == "failed":
+        summary["capabilities"]["reconciliation"] = "failed"
+    else:
+        summary["capabilities"]["reconciliation"] = "partial_unverified"
+
+
 class EventLogger:
     def __init__(self, path: Path, run_id: str, city_id: str):
         self.path = path
@@ -584,6 +668,8 @@ class EventLogger:
         outcome: str,
         error_code: str | None = None,
         duration_ms: int = 0,
+        check_id: str | None = None,
+        category: str | None = None,
     ):
         if stage not in self.stage_names:
             self.stage_names.append(stage)
@@ -598,5 +684,9 @@ class EventLogger:
             "duration_ms": duration_ms,
             "error_code": error_code,
         }
+        if check_id is not None:
+            data["check_id"] = check_id
+        if category is not None:
+            data["category"] = category
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n")
