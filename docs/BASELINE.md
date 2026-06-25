@@ -2,16 +2,20 @@
 
 ## Purpose
 
-`finance-agent-lab` maintains an income and expense accounting pipeline for one local finance workflow. The current tracked README names the command `python -m src.pipeline` and an Excel output under `runs/<date>/...` (`README.md:1-11`).
+`finance-agent-lab` is now positioned as a multi-city finance calculation platform. The public entrypoint is `python -m src.cli`; `guan` / 固安 is the first reference city and is loaded through explicit city configuration.
 
-This baseline is an audit artifact only. No business calculation logic was changed, no real finance file content was read, and local ignored data was inspected only by filesystem metadata.
+This baseline records the current engineering boundary. No business rule values were changed, no real finance file content was read, and local ignored data was inspected only by filesystem metadata.
 
 ## Current Architecture
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| README entrypoint | implemented but unsafe | `README.md:7`; `src/pipeline.py:21-28` hard-codes local input files outside the repo |
-| Current richer pipeline | implemented as city-specific script | `src/pipeline_guan.py:53-372` orchestrates config, manifest, extraction, normalization, income, fees, reconciliation, and report |
+| Public CLI entrypoint | implemented | `src/cli.py`; README usage documents `python -m src.cli plan/run` |
+| Request validation and path safety | implemented | `src/pipeline_service.py` validates explicit city/input/output and refuses unsafe nesting |
+| City registry/profile | implemented for `guan` | `src/city_registry.py`; `config/cities/guan.yaml` includes metadata and `rule_approval_status: unverified` |
+| Versioned frontend result contract | implemented | `schemas/run-result.schema.json`; `schemas/run-manifest.schema.json`; `src/result_contract.py` |
+| Legacy README entrypoint | deprecated and safe by default | `src/pipeline.py` prints deprecation guidance and does not run accounting by default |
+| Current richer city reference | implemented as internal reference | `src/pipeline_guan.py:53-372` remains the most complete historical 固安-style orchestration, but is not the public API |
 | Configuration loading | implemented | `src/config.py:11-23`; `config/cities/guan.yaml` |
 | Manifest and file fingerprints | implemented | `src/manifest.py:8-25`, `src/manifest.py:28-66`; used by `src/pipeline_guan.py:70-84`, `src/pipeline_guan.py:350-363` |
 | Field mapping | implemented, lightly tested indirectly | `src/field_mapper.py:36-99`; no direct unit tests in `tests/minimal_tests.py` |
@@ -27,12 +31,12 @@ This baseline is an audit artifact only. No business calculation logic was chang
 
 | Stage | Status | Evidence |
 | --- | --- | --- |
-| Input | partial | `src/pipeline_guan.py:71-75` expects fixed file names outside `BASE_DIR`; `src/pipeline.py:26-28` embeds absolute local input files |
-| Read and validate | partial | `src/pipeline_guan.py:76-83` checks existence and fingerprints; `src/field_mapper.py:80-90` fails on missing bill headers |
+| Input | implemented for safe public smoke boundary | `src.cli` requires explicit `--city`, `--input`, and `--output`; `src.pipeline_service` refuses unsafe path relationships |
+| Read and validate | implemented for synthetic `guan` smoke | `src.field_mapper.py:80-90` fails on missing bill headers; Phase 2C tests generate synthetic workbooks |
 | Standardize | implemented | `src/normalizer.py:61-146` maps rows into `NormalizedBillingRow`; invalid amounts are retained with errors |
 | Business calculation | implemented / partial | Income and team fees are implemented; crowd cost and reconciliation paths exist but are not unit-tested |
 | Reconcile | partial | Income and team checks exist in `src/reconcile.py:5-65`; a bill-vs-cost helper is still a placeholder at `src/reconcile.py:68-87` |
-| Output | implemented | `src/pipeline_guan.py:143-157`, `src/pipeline_guan.py:212-215`, `src/pipeline_guan.py:317-348`; Excel sheets include unknown and anomaly tabs in `src/report.py:402-469` |
+| Output | implemented | Phase 2C writes `run-manifest.json`, `result-summary.json`, `unknown-types.json`, `events.jsonl`, and report artifacts under `<output>/runs/<run-id>` |
 
 ## Module Status
 
@@ -45,10 +49,10 @@ This baseline is an audit artifact only. No business calculation logic was chang
 | Fee calculation | implemented | `src/fee_calc.py:7-56`; HQ fee and team cost tested |
 | Crowd cost extraction | partial | `src/crowd_cost.py:12-74`; no fixture test covers filter/category behavior |
 | Cross-table reconciliation | partial | `src/reconcile.py:68-87` is placeholder; `compare_bill_crowd_counts` exists at `src/reconcile.py:90-120` |
-| Report generation | implemented / untested | `src/report.py:61-96`; no test opens or inspects generated workbook structure |
-| Pipeline orchestration | partial | `src/pipeline_guan.py:53-372` is comprehensive but fixed to one city/date and local file names |
+| Report generation | implemented and smoke-tested | `src/report.py:61-96`; `tests/test_phase2c_safe_entrypoint.py` verifies report artifact generation |
+| Public pipeline orchestration | implemented for safe smoke | `src/pipeline_service.py` wraps real field mapping, normalization, income, fee, report, manifest, and contract boundaries |
 | Configurable business rules | partial | City config covers many rules; legacy `src/pipeline.py` uses older config files and hard-coded run counts at `src/pipeline.py:118-122` |
-| Unknown type reporting | implemented for income, partial for delivery | `src/income_calc.py:27-101`; `src/pipeline_guan.py:180-187`, `src/report.py:424-437` |
+| Unknown type reporting | implemented fail-closed | `src/income_calc.py:27-101`; `src/pipeline_service.py`; Phase 2C tests verify blocked status |
 
 ## Business Rule Sources
 
@@ -83,12 +87,11 @@ Highest-value missing tests:
 
 | Gap | Why it matters | Evidence |
 | --- | --- | --- |
-| Safe entrypoint behavior | README command currently points at a script with local absolute input files | `README.md:7`; `src/pipeline.py:21-28` |
+| Crowd cost extraction fixture tests | Crowd cost is a core expense path beyond the Phase 2C smoke boundary | `src/crowd_cost.py:12-74` |
 | Field mapping fixture tests | Real bills can change header row or column order | `src/field_mapper.py:36-99` |
-| Crowd cost extraction fixture tests | Crowd cost is a core expense path but untested | `src/crowd_cost.py:12-74` |
 | Reconciliation tests | A helper is placeholder and count mismatch policy is business-sensitive | `src/reconcile.py:68-87`; `config/cities/guan.yaml` |
-| Report generation smoke test | Final Excel shape is user-facing but untested | `src/report.py:61-96`, `src/report.py:402-469` |
-| Input immutability | Manifest verifies after run, but no automated test proves original inputs are not modified | `src/manifest.py:42-66`; `src/pipeline_guan.py:350-363` |
+| Report content checks | Phase 2C proves report artifact generation, but not workbook business content | `src/report.py:61-96`, `src/report.py:402-469` |
+| Real-input immutability | Synthetic inputs are tested; real inputs remain out of scope until business-approved dry runs | `tests/test_phase2c_safe_entrypoint.py` |
 
 ## Local Data Boundary
 
@@ -130,9 +133,8 @@ All ignored local data observed in this audit is grouped under `runs`; no root-l
 
 | Risk | Severity | Evidence |
 | --- | --- | --- |
-| README command targets legacy script with absolute local finance file paths | high | `README.md:7`; `src/pipeline.py:26-28` |
-| Two pipeline generations coexist | high | `src/pipeline.py` uses float-oriented legacy modules; `src/pipeline_guan.py` uses Decimal-oriented modules |
-| Core crowd-cost and report paths lack fixture tests | high | no tests import `src.crowd_cost`, `src.report`, or `src.pipeline_guan` |
+| Two pipeline generations coexist | high | `src.pipeline` is deprecated; `src.pipeline_guan.py` remains a city reference; legacy float-oriented modules remain tracked |
+| Core crowd-cost path lacks fixture tests | high | no tests import `src.crowd_cost` for bucket behavior |
 | Field mapping is code-defined, not config-driven | medium | `src/field_mapper.py:5-18` |
 | Placeholder reconciliation helper remains tracked | medium | `src/reconcile.py:68-87` |
 | Business source for fixed city/date/rates/file names is not recorded | medium | `config/cities/guan.yaml`; `src/pipeline_guan.py:71-75` |
@@ -142,10 +144,10 @@ All ignored local data observed in this audit is grouped under `runs`; no root-l
 
 | Question | Why needed |
 | --- | --- |
-| Which pipeline is authoritative: README `src.pipeline` or city-specific `src.pipeline_guan`? | Determines the safe public entrypoint for Phase 2C |
-| Should the project continue to support one city/date at a time or become multi-city/date configurable now? | Prevents premature generalization |
+| Should Phase 2D prioritize crowd-cost fixture coverage or reconciliation policy hardening? | Both are still business-critical gaps after safe entrypoint work |
+| Which future city/date input contract should follow `guan`? | Phase 2C only validates `guan` |
 | Are fixed rate values and whitelist entries approved business rules? | They currently come from config, but the approving source is not recorded |
-| Should unknown income or delivery types fail the run, warn, or only report? | Current behavior reports/warns in different places |
+| Should unknown income or delivery types always fail formal production runs? | Phase 2C defaults to fail-closed; final business policy still needs owner approval |
 | Should extracted files and normalized CSVs be retained in every run or optionally cleaned? | Affects local data growth and auditability |
 
 ## Candidate Next Tasks

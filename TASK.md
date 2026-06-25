@@ -2,49 +2,46 @@
 
 ## Objective
 
-Safe public entrypoint and fixture smoke test.
+Review Phase 2C safe entrypoint and choose the next business-hardening task.
 
 ## Why Now
 
-The baseline audit found that the documented command points to a legacy script with absolute local finance file paths, while the richer city-specific pipeline has no fixture-level smoke test. The next development task should make the intended entrypoint safe before any business calculation changes.
+Phase 2C established a safe public CLI, explicit `guan` city loading, synthetic smoke coverage, and a versioned result contract. The next step is human review before hardening the next business-critical area.
 
 ## Acceptance Criteria
 
-- [ ] The default documented command no longer depends on local absolute finance file paths.
-- [ ] The authoritative pipeline entrypoint is explicit and fails clearly when required inputs are absent.
-- [ ] A fixture-based smoke test creates only synthetic inputs in a temporary directory.
-- [ ] The smoke test verifies generated outputs are confined to a temporary/run directory.
-- [ ] The smoke test verifies input fixture hashes are unchanged after the run.
-- [ ] The existing 15 baseline tests still pass through `scripts/check.ps1`.
+- [ ] Review `python -m src.cli plan/run` behavior and exit codes.
+- [ ] Review `schemas/run-result.schema.json` and `schemas/run-manifest.schema.json` for frontend-readiness.
+- [ ] Confirm `guan` remains the first reference city.
+- [ ] Choose Phase 2D: crowd-cost fixture coverage or reconciliation policy hardening.
+- [ ] Confirm business owner follow-up for fee rates, whitelists, and unknown-type policy.
 
 ## Scope
 
-README usage, safe entrypoint selection, pipeline input/output boundary harness, and synthetic fixture smoke testing.
+Human review of the safe entrypoint, solidified result contract, smoke-test boundary, and next Phase 2D task.
 
 ## Out of Scope
 
-Income formulas, fee formulas, crowd-cost formulas, reconciliation policy changes, real finance files, existing `runs` cleanup, external APIs, notifications, remotes, and UI.
+Implementation work, frontend, database, real finance files, existing `runs` cleanup, external APIs, notifications, remotes, and UI.
 
 ## Required Inputs
 
-- Human confirmation of the authoritative pipeline entrypoint.
-- Human confirmation of whether Phase 2C should keep one city/date or introduce minimal configurable input arguments.
-- Synthetic fixture shape approved as sufficient for smoke testing.
+- Human review of Phase 2C outputs.
+- Business confirmation of rules remains pending.
 
 ## Validation Plan
 
-- Run `.\scripts\check.ps1`.
-- Run the new fixture smoke test without reading real finance files.
-- Run `git diff --check`.
-- Confirm no local machine-specific or real-data paths are required by the documented default command.
+- Review Phase 2C final summary.
+- Inspect `docs/BASELINE.md`, `README.md`, and `schemas/`.
+- Approve or revise the proposed Phase 2D task.
 
 ## Known Blockers
 
-Phase 2C is not approved yet. Business owner must review `docs/BASELINE.md`, answer unknown rule questions, and approve or modify this recommended task.
+Waiting for Phase 2D approval. Business owner must still confirm fee rates, whitelists, and final unknown-type policy.
 
 ## Resume Context
 
-- Last files: docs/BASELINE.md, TASK.md, D:\AI-Workspace\Brain\10-Projects\Finance Agent Lab.md
+- Last files: src/cli.py, src/pipeline_service.py, schemas/run-result.schema.json, tests/test_phase2c_safe_entrypoint.py, README.md
 - Last command: .\scripts\check.ps1
-- Last result: 15 existing unit tests passed through scripts/check.ps1 during Phase 2B baseline verification
-- Next action: 等待 Phase 2C 人工批准
+- Last result: existing and Phase 2C tests passed
+- Next action: 审核 Phase 2C 安全入口和固安 smoke test
