@@ -1,3 +1,8 @@
+city_id: guan
+display_name: 固安
+schema_version: 1
+rule_approval_status: unverified
+
 city_name: 固安
 agent_id: "342"
 billing_date: "2026-06-23"

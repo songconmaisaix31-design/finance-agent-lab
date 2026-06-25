@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finance-agent-lab.local/schemas/run-result.schema.json",
+  "title": "Run Result Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "city",
+    "status",
+    "period",
+    "config",
+    "metrics",
+    "validation",
+    "capabilities",
+    "artifacts",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "city": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "status": { "enum": ["success", "blocked", "failed", "planned"] },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": ["string", "null"] },
+        "end": { "type": ["string", "null"] }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sha256", "approval_status"],
+      "properties": {
+        "version": { "type": "integer" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "approval_status": { "type": "string" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknown_income_types", "unknown_delivery_types", "reconciliation_errors", "warnings"],
+      "properties": {
+        "unknown_income_types": { "type": "integer", "minimum": 0 },
+        "unknown_delivery_types": { "type": "integer", "minimum": 0 },
+        "reconciliation_errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path", "media_type", "sha256", "size_bytes"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "media_type": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "created_at": { "type": "string" }
+  }
+}

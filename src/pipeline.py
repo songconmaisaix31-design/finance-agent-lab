@@ -18,7 +18,7 @@ from src.reporter import generate_report
 from src.models import RunSummary, RunInfo
 
 
-def main():
+def _legacy_main_unsafe():
     base_dir = Path(__file__).resolve().parent.parent
     config_dir = base_dir / "config"
 
@@ -142,5 +142,14 @@ def main():
     print(f"输出文件: {output_path}")
 
 
+def main(argv=None):
+    print(
+        "DEPRECATED: src.pipeline is the legacy local script and will not run accounting by default.\n"
+        "Use: python -m src.cli plan --city guan --input <input-directory> --output <output-directory>\n"
+        "Use: python -m src.cli run --city guan --input <input-directory> --output <output-directory> --execute"
+    )
+    return 2
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

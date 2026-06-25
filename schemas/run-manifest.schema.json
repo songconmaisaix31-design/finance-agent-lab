@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finance-agent-lab.local/schemas/run-manifest.schema.json",
+  "title": "Run Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "city_id",
+    "mode",
+    "status",
+    "started_at",
+    "ended_at",
+    "input",
+    "config",
+    "application",
+    "stages",
+    "exit_code",
+    "error_code",
+    "error_message",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "city_id": { "type": "string" },
+    "mode": { "enum": ["plan", "execute", "audit"] },
+    "status": { "enum": ["success", "blocked", "failed", "planned"] },
+    "started_at": { "type": "string" },
+    "ended_at": { "type": "string" },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_path", "manifest_sha256", "file_count", "private_local_only"],
+      "properties": {
+        "local_path": { "type": "string" },
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "file_count": { "type": "integer", "minimum": 0 },
+        "private_local_only": { "type": "boolean" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "version", "approval_status"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "version": { "type": "integer" },
+        "approval_status": { "type": "string" }
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "python_version", "entrypoint"],
+      "properties": {
+        "commit": { "type": "string" },
+        "python_version": { "type": "string" },
+        "entrypoint": { "type": "string" }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "exit_code": { "type": "integer" },
+    "error_code": { "type": ["string", "null"] },
+    "error_message": { "type": ["string", "null"] },
+    "artifacts": { "type": "array" }
+  }
+}
