@@ -238,18 +238,21 @@ class TestSmokeContract(unittest.TestCase):
             run_dir = runs[0]
             summary_path = run_dir / "result-summary.json"
             manifest_path = run_dir / "run-manifest.json"
+            reconciliation_path = run_dir / "reconciliation-report.json"
             unknown_path = run_dir / "unknown-types.json"
             events_path = run_dir / "events.jsonl"
             report_files = list((run_dir / "artifacts").glob("*.xlsx"))
 
             self.assertTrue(summary_path.exists())
             self.assertTrue(manifest_path.exists())
+            self.assertTrue(reconciliation_path.exists())
             self.assertTrue(unknown_path.exists())
             self.assertTrue(events_path.exists())
             self.assertTrue(report_files)
 
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            reconciliation_report = json.loads(reconciliation_path.read_text(encoding="utf-8"))
             result_schema = json.loads((ROOT / "schemas" / "run-result.schema.json").read_text(encoding="utf-8"))
             manifest_schema = json.loads((ROOT / "schemas" / "run-manifest.schema.json").read_text(encoding="utf-8"))
             jsonschema.Draft202012Validator(result_schema).validate(summary)
@@ -257,8 +260,16 @@ class TestSmokeContract(unittest.TestCase):
 
             self.assertEqual(summary["status"], "success")
             self.assertEqual(summary["city"]["id"], "guan")
+            self.assertEqual(summary["reconciliation"]["status"], "passed")
+            self.assertEqual(summary["reconciliation"]["summary"]["failed"], 0)
+            self.assertEqual(summary["reconciliation"]["summary"]["blocked"], 0)
+            self.assertEqual(reconciliation_report["status"], "passed")
+            self.assertEqual(reconciliation_report["checks"], summary["reconciliation"]["checks"])
+            self.assertTrue(any(c["check_id"] == "crowd.bucket_total" for c in summary["reconciliation"]["checks"]))
+            self.assertTrue(any(c["check_id"] == "cross_table.business_rules" and c["status"] == "not_implemented" for c in summary["reconciliation"]["checks"]))
             self.assertNotIn("Desktop", json.dumps(summary, ensure_ascii=False))
             self.assertNotIn(str(input_dir), json.dumps(summary, ensure_ascii=False))
+            self.assertNotIn(str(input_dir), json.dumps(reconciliation_report, ensure_ascii=False))
             self.assertIsInstance(summary["metrics"]["food_income_total"], str)
             self.assertEqual(summary["costs"]["crowd"]["status"], "complete")
             self.assertEqual(summary["costs"]["crowd"]["total"], "100.00")
@@ -328,6 +339,8 @@ class TestUnknownTypePolicy(unittest.TestCase):
             unknown = json.loads((run_dir / "unknown-types.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["status"], "blocked")
             self.assertEqual(summary["costs"]["crowd"]["status"], "blocked")
+            self.assertEqual(summary["reconciliation"]["status"], "blocked")
+            self.assertTrue(any(c["check_id"] == "crowd.upstream_status" and c["status"] == "blocked" for c in summary["reconciliation"]["checks"]))
             self.assertEqual(summary["validation"]["unknown_crowd_cost_rows"], 1)
             self.assertEqual(len(unknown["unknown_crowd_cost_rows"]), 1)
 
