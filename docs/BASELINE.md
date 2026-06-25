@@ -215,3 +215,53 @@ Unimplemented business checks:
 - Any approved non-zero amount tolerance.
 - Negative amount, reversal, zero amount, and duplicate-row business policy beyond current characterization.
 - Final business approval of fee rates, whitelists, and crowd-cost bucket rules.
+
+## Phase 2F Six-City Governance Baseline
+
+The confirmed city scope is:
+
+| City id | Display name | Rule status | Production ready |
+| --- | --- | --- | --- |
+| `guan` | 固安 | `unverified` | false |
+| `xianghe` | 香河 | `missing` | false |
+| `yicheng` | 驿城 | `missing` | false |
+| `yongcheng` | 永城 | `missing` | false |
+| `queshan` | 确山 | `missing` | false |
+| `biyang` | 泌阳 | `missing` | false |
+
+Shared profile:
+
+- Path: `config/pipeline_profiles/standard-finance-pipeline.yaml`
+- Profile id: `standard-finance-pipeline`
+- Version: `1`
+- Scope: stage and capability declaration only; no city paths, fee rates, whitelists, field aliases, or business data.
+
+City profile paths:
+
+- `config/city_profiles/guan.yaml`
+- `config/city_profiles/xianghe.yaml`
+- `config/city_profiles/yicheng.yaml`
+- `config/city_profiles/yongcheng.yaml`
+- `config/city_profiles/queshan.yaml`
+- `config/city_profiles/biyang.yaml`
+
+Storage boundary:
+
+- Storage is resolved from `FINANCE_DATA_ROOT` or explicit CLI `--root`.
+- The project repository and Brain do not store city finance data.
+- Each city has `incoming`, `staging`, `runs`, `exports`, `quarantine`, and `archive` namespaces.
+- Cross-city input/output is rejected when a path is recognized as another city namespace.
+- Storage initialization creates only missing directories, safe markers, README, and `catalog/cities.json`.
+
+Rule governance:
+
+- `guan` keeps using `config/cities/guan.yaml` as the current synthetic calculation source.
+- `config/rules/guan/rule-set.yaml` records that source and unverified approval state.
+- The other five cities have no approved rule source and must not inherit `guan` values.
+- Approval drafts live under `approval-pack/` and ask business owners to decide whether rates, whitelists, aliases, crowd mappings, anomaly policies, cross-table relationships, and tolerances are shared.
+
+Result contract:
+
+- `result-summary.json` includes `pipeline`, `storage`, and `rules`.
+- `run-manifest.json` includes the same profile/namespace/rule metadata.
+- Reconciliation contract checks include pipeline profile, storage namespace, rule status, and artifact city path isolation.

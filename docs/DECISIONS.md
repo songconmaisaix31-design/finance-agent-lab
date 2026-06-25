@@ -21,3 +21,9 @@
 - Technical money invariants use exact Decimal comparison with zero tolerance unless an approved rule source explicitly configures otherwise.
 - Cross-table business reconciliation remains `not_implemented` / `unverified` until approved business rules exist.
 - Upstream blocked results propagate to reconciliation and cannot be treated as zero.
+- The six confirmed city ids are `guan`, `xianghe`, `yicheng`, `yongcheng`, `queshan`, and `biyang`.
+- All six cities share one Standard Pipeline Profile: `standard-finance-pipeline` version `1`.
+- City data must be physically and logically isolated by storage namespace.
+- City Profile files describe identity, capabilities, rule references, and storage namespace only; they do not contain executable pipeline code.
+- Whether business parameters are shared across cities is decided by approval results, not by default copying.
+- Future frontend surfaces consume the unified Result Contract and city catalog, not raw city Excel files.

@@ -18,6 +18,9 @@ Safety:
 - Reconciliation must report differences only; it must not auto-correct or rebalance business data.
 - Do not add amount tolerances unless an approved rule source explicitly provides them.
 - Upstream `blocked` results must not be treated as zero in downstream reconciliation.
+- Do not create duplicated city-specific pipeline implementations.
+- Do not read from or write to another city's data namespace.
+- Do not treat one city's business rules as another city's default rules.
 
 Start:
 - Run `.\scripts\check.ps1` from the project root.
