@@ -29,6 +29,24 @@ The future frontend-facing result contract is versioned in:
 - `schemas/run-result.schema.json`
 - `schemas/run-manifest.schema.json`
 
+The authoritative Phase 2E reconciliation result is available in:
+
+- `<output-directory>\runs\<run-id>\result-summary.json` under `reconciliation`
+- `<output-directory>\runs\<run-id>\reconciliation-report.json`
+
+Reconciliation status meanings:
+
+- `passed`: required technical checks passed.
+- `failed`: a blocking technical check failed.
+- `blocked`: an upstream required result is blocked or unavailable.
+- `partial`: only incomplete or not applicable checks are available.
+
+Current reconciliation scope:
+
+- Technical invariants use exact Decimal comparison and zero tolerance.
+- Implemented checks cover crowd bucket totals, crowd row accounting, artifact consistency, contract consistency, upstream blocked propagation, and input immutability.
+- Cross-table business relationships are reported as `not_implemented` with `approval_status: unverified` until approved rules exist.
+
 Current crowd-cost status:
 
 - `guan` synthetic smoke runs include crowd-cost extraction from `crowd_cost.xlsx`.

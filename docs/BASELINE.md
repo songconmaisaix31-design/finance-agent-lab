@@ -175,3 +175,43 @@ Out of scope for the recommended task:
 - Changing income, fee, or crowd-cost formulas.
 - Reading or running real finance files.
 - Adding frontend, database, external APIs, notifications, remotes, or UI.
+
+## Phase 2E Reconciliation Contract Baseline
+
+Phase 2E introduces a single public reconciliation contract entry:
+
+`src.reconciliation_contract.build_reconciliation_contract`
+
+The old `src.reconcile` helpers remain available for report compatibility, but they are not the authoritative public reconciliation boundary. The placeholder `reconcile_bill_vs_cost_table` is not promoted to authority and cross-table business reconciliation remains unimplemented until approved rule sources exist.
+
+Implemented technical checks:
+
+| Check id | Category | Rule source | Approval status | Status |
+| --- | --- | --- | --- | --- |
+| `crowd.upstream_status` | structural | technical_invariant | technical | implemented |
+| `crowd.bucket_total` | arithmetic | technical_invariant | technical | implemented |
+| `crowd.row_accounting` | arithmetic | technical_invariant | technical | implemented |
+| `artifact.summary_manifest_consistency` | structural | technical_invariant | technical | implemented |
+| `artifact.manifest_actual_consistency` | structural | technical_invariant | technical | implemented |
+| `contract.run_id` | contract | technical_invariant | technical | implemented |
+| `contract.city_id` | contract | technical_invariant | technical | implemented |
+| `contract.status` | contract | technical_invariant | technical | implemented |
+| `contract.config_hash` | contract | technical_invariant | technical | implemented |
+| `contract.schema_version` | contract | technical_invariant | technical | implemented |
+| `input.manifest_unchanged` | contract | technical_invariant | technical | implemented |
+| `cross_table.business_rules` | cross_table | unknown | unverified | not_implemented |
+
+Current result boundary:
+
+- `result-summary.json` includes a `reconciliation` object under schema version `1.0`.
+- `reconciliation-report.json` is a safe machine-readable copy containing run id, status, summary, checks, warnings, errors, timestamp, and engine version.
+- All amount values in reconciliation checks are string-serialized Decimal values.
+- Failed or blocked reconciliation prevents a `success` run status.
+- Cross-table business relations do not become approved in Phase 2E.
+
+Unimplemented business checks:
+
+- Authoritative relationships between real business tables.
+- Any approved non-zero amount tolerance.
+- Negative amount, reversal, zero amount, and duplicate-row business policy beyond current characterization.
+- Final business approval of fee rates, whitelists, and crowd-cost bucket rules.

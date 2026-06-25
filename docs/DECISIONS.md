@@ -15,3 +15,9 @@
 - Crowd cost bucket IDs must remain stable unless a schema and migration review approves a change.
 - Unknown crowd-cost categories fail closed by default.
 - Existing crowd-cost bucket rules retain `approval_status: unverified` until business approval is recorded.
+- The authoritative public reconciliation entry is `src.reconciliation_contract.build_reconciliation_contract`.
+- Legacy `src.reconcile` remains report-oriented compatibility code and does not decide the public result contract.
+- Phase 2E reconciliation reports differences only and never modifies upstream business data.
+- Technical money invariants use exact Decimal comparison with zero tolerance unless an approved rule source explicitly configures otherwise.
+- Cross-table business reconciliation remains `not_implemented` / `unverified` until approved business rules exist.
+- Upstream blocked results propagate to reconciliation and cannot be treated as zero.

@@ -15,6 +15,9 @@ Safety:
 - City differences must be explicit city profiles/config, not guessed from input files.
 - Public result JSON must follow `schemas/` and must not expose absolute input paths.
 - Unknown income, delivery, or crowd-cost types fail closed by default.
+- Reconciliation must report differences only; it must not auto-correct or rebalance business data.
+- Do not add amount tolerances unless an approved rule source explicitly provides them.
+- Upstream `blocked` results must not be treated as zero in downstream reconciliation.
 
 Start:
 - Run `.\scripts\check.ps1` from the project root.
