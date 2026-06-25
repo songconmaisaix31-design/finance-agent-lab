@@ -1,0 +1,31 @@
+schema_version: 1
+
+city:
+  id: guan
+  display_name: 固安
+  currency: CNY
+
+pipeline:
+  profile_id: standard-finance-pipeline
+  version: 1
+
+storage:
+  namespace: guan
+  root_env: FINANCE_DATA_ROOT
+
+rules:
+  rule_set_id: guan-rules
+  version: 1
+  status: unverified
+
+capabilities:
+  billing_income: enabled
+  headquarters_fee: enabled
+  team_delivery_fee: enabled
+  crowd_cost: enabled
+  reconciliation_technical: enabled
+  reconciliation_business: unavailable
+
+approval_summary:
+  production_ready: false
+  rule_approval_status: unverified
