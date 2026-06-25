@@ -11,3 +11,7 @@
 - Future frontend consumption depends on versioned result contracts under `schemas/`.
 - Unknown income and delivery types fail closed by default.
 - Current fee rates, whitelists, and field rules retain `rule_approval_status: unverified` until business approval is recorded.
+- Crowd cost enters the public pipeline through a stable result model instead of ad hoc JSON.
+- Crowd cost bucket IDs must remain stable unless a schema and migration review approves a change.
+- Unknown crowd-cost categories fail closed by default.
+- Existing crowd-cost bucket rules retain `approval_status: unverified` until business approval is recorded.

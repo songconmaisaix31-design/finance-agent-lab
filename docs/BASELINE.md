@@ -22,9 +22,9 @@ This baseline records the current engineering boundary. No business rule values 
 | Data normalization | implemented | `src/normalizer.py:47-58`, `src/normalizer.py:61-146` |
 | Income calculation | implemented | `src/income_calc.py:8-101`; tested by `tests/minimal_tests.py:103-119` |
 | Fee calculation | implemented | `src/fee_calc.py:7-56`; tested by `tests/minimal_tests.py:124-178` |
-| Crowd cost extraction | partial | `src/crowd_cost.py:12-74`; not covered by current tests |
+| Crowd cost extraction | implemented and synthetic-tested | `src/crowd_cost.py:12-74`; `src/crowd_cost_contract.py`; `tests/test_crowd_cost_contract.py` |
 | Cross-table reconciliation | partial | `src/reconcile.py:5-65`, `src/reconcile.py:90-120`; `src/reconcile.py:68-87` contains a placeholder body |
-| Report generation | implemented, untested | `src/report.py:61-96`, `src/report.py:402-469`; no report tests |
+| Report generation | implemented and smoke-tested | `src/report.py:61-96`, `src/report.py:402-469`; public smoke tests assert report artifact generation |
 | Legacy modules | partial / risky | `src/loader.py`, `src/models.py`, `src/income.py`, `src/hq_fee.py`, `src/reporter.py` use float-oriented structures or older pipeline paths |
 
 ## Data Flow
@@ -34,7 +34,7 @@ This baseline records the current engineering boundary. No business rule values 
 | Input | implemented for safe public smoke boundary | `src.cli` requires explicit `--city`, `--input`, and `--output`; `src.pipeline_service` refuses unsafe path relationships |
 | Read and validate | implemented for synthetic `guan` smoke | `src.field_mapper.py:80-90` fails on missing bill headers; Phase 2C tests generate synthetic workbooks |
 | Standardize | implemented | `src/normalizer.py:61-146` maps rows into `NormalizedBillingRow`; invalid amounts are retained with errors |
-| Business calculation | implemented / partial | Income and team fees are implemented; crowd cost and reconciliation paths exist but are not unit-tested |
+| Business calculation | implemented / partial | Income, team fees, and crowd-cost extraction are synthetic-tested; reconciliation strategy remains partial |
 | Reconcile | partial | Income and team checks exist in `src/reconcile.py:5-65`; a bill-vs-cost helper is still a placeholder at `src/reconcile.py:68-87` |
 | Output | implemented | Phase 2C writes `run-manifest.json`, `result-summary.json`, `unknown-types.json`, `events.jsonl`, and report artifacts under `<output>/runs/<run-id>` |
 
@@ -47,12 +47,12 @@ This baseline records the current engineering boundary. No business rule values 
 | Data standardization | implemented | `src/normalizer.py:47-58`, `src/normalizer.py:61-146`; `tests/minimal_tests.py:36-58` covers decimal parsing |
 | Income calculation | implemented | `src/income_calc.py:8-101`; whitelist and unknown types tested |
 | Fee calculation | implemented | `src/fee_calc.py:7-56`; HQ fee and team cost tested |
-| Crowd cost extraction | partial | `src/crowd_cost.py:12-74`; no fixture test covers filter/category behavior |
+| Crowd cost extraction | implemented and synthetic-tested | Four existing buckets are covered with fully synthetic workbooks |
 | Cross-table reconciliation | partial | `src/reconcile.py:68-87` is placeholder; `compare_bill_crowd_counts` exists at `src/reconcile.py:90-120` |
 | Report generation | implemented and smoke-tested | `src/report.py:61-96`; `tests/test_phase2c_safe_entrypoint.py` verifies report artifact generation |
 | Public pipeline orchestration | implemented for safe smoke | `src/pipeline_service.py` wraps real field mapping, normalization, income, fee, report, manifest, and contract boundaries |
 | Configurable business rules | partial | City config covers many rules; legacy `src/pipeline.py` uses older config files and hard-coded run counts at `src/pipeline.py:118-122` |
-| Unknown type reporting | implemented fail-closed | `src/income_calc.py:27-101`; `src/pipeline_service.py`; Phase 2C tests verify blocked status |
+| Unknown type reporting | implemented fail-closed | `src/income_calc.py:27-101`; `src/crowd_cost_contract.py`; `src/pipeline_service.py`; Phase 2C/2D tests verify blocked status |
 
 ## Business Rule Sources
 
@@ -68,7 +68,7 @@ This baseline records the current engineering boundary. No business rule values 
 | Field aliases and required headers | code constants | implemented but not config-driven | `src/field_mapper.py:5-18`; `src/field_mapper.py:30-70` |
 | Header position | detection in first 10 rows | implemented, untested | `src/field_mapper.py:36-50` |
 | Empty / invalid amount | code behavior | implemented and tested only for parser | `src/normalizer.py:47-58`, `src/normalizer.py:93-111`; parser tests at `tests/minimal_tests.py:36-58` |
-| Crowd cost filters and category mapping | city config | implemented but lacks tests | `src/crowd_cost.py:12-74`; `config/cities/guan.yaml` |
+| Crowd cost filters and category mapping | city config + existing code | implemented and synthetic-tested; approval unverified | `src/crowd_cost.py:12-74`; `config/cities/guan.yaml`; `tests/test_crowd_cost_contract.py` |
 | Cross-table differences | code + config tolerance | partial | `src/reconcile.py:90-120`; `src/pipeline_guan.py:298-317` |
 | Real data-derived assumptions | unknown | needs confirmation | Hard-coded file names, city/date, and fixed run names exist; business source not recorded in docs |
 
@@ -87,7 +87,6 @@ Highest-value missing tests:
 
 | Gap | Why it matters | Evidence |
 | --- | --- | --- |
-| Crowd cost extraction fixture tests | Crowd cost is a core expense path beyond the Phase 2C smoke boundary | `src/crowd_cost.py:12-74` |
 | Field mapping fixture tests | Real bills can change header row or column order | `src/field_mapper.py:36-99` |
 | Reconciliation tests | A helper is placeholder and count mismatch policy is business-sensitive | `src/reconcile.py:68-87`; `config/cities/guan.yaml` |
 | Report content checks | Phase 2C proves report artifact generation, but not workbook business content | `src/report.py:61-96`, `src/report.py:402-469` |
@@ -134,7 +133,7 @@ All ignored local data observed in this audit is grouped under `runs`; no root-l
 | Risk | Severity | Evidence |
 | --- | --- | --- |
 | Two pipeline generations coexist | high | `src.pipeline` is deprecated; `src.pipeline_guan.py` remains a city reference; legacy float-oriented modules remain tracked |
-| Core crowd-cost path lacks fixture tests | high | no tests import `src.crowd_cost` for bucket behavior |
+| Crowd-cost business meaning is unapproved | high | Bucket behavior is tested as existing behavior, with `approval_status: unverified` |
 | Field mapping is code-defined, not config-driven | medium | `src/field_mapper.py:5-18` |
 | Placeholder reconciliation helper remains tracked | medium | `src/reconcile.py:68-87` |
 | Business source for fixed city/date/rates/file names is not recorded | medium | `config/cities/guan.yaml`; `src/pipeline_guan.py:71-75` |
@@ -144,38 +143,35 @@ All ignored local data observed in this audit is grouped under `runs`; no root-l
 
 | Question | Why needed |
 | --- | --- |
-| Should Phase 2D prioritize crowd-cost fixture coverage or reconciliation policy hardening? | Both are still business-critical gaps after safe entrypoint work |
+| Should Phase 2E harden cross-table reconciliation warnings vs failures? | Cross-table reconciliation is the next correctness gap |
 | Which future city/date input contract should follow `guan`? | Phase 2C only validates `guan` |
 | Are fixed rate values and whitelist entries approved business rules? | They currently come from config, but the approving source is not recorded |
+| Are crowd-cost bucket mappings approved business rules? | Phase 2D verifies behavior but does not approve business meaning |
 | Should unknown income or delivery types always fail formal production runs? | Phase 2C defaults to fail-closed; final business policy still needs owner approval |
+| How should negative, zero, duplicated, and reversal crowd-cost rows be treated? | Phase 2D characterizes current behavior as additive/unverified |
 | Should extracted files and normalized CSVs be retained in every run or optionally cleaned? | Affects local data growth and auditability |
 
 ## Candidate Next Tasks
 
 | Candidate | Problem | Value | Scope | Main files | Acceptance criteria | Test strategy | Risk | Complexity | Business confirmation |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Safe public entrypoint and fixture smoke test | README command points to legacy absolute-path pipeline | Prevents accidental use of old local inputs and establishes a testable workflow | Align entrypoint to the authoritative pipeline, fail fast without inputs, add tiny synthetic fixtures | `README.md`, `src/pipeline.py`, `src/pipeline_guan.py`, `tests/` | No absolute local paths in default command; missing inputs fail clearly; fixture run proves outputs land under temp/run dir; existing 15 tests still pass | Generate minimal in-test workbooks/ZIPs; assert no fixture input hash changes | Could expose hidden assumptions in report/crowd-cost path | M | Confirm authoritative pipeline and default city/date |
-| Crowd cost extraction fixture coverage | Expense path is core and untested | Raises confidence in cost buckets before business changes | Add fixture tests around crowd cost field detection, filtering, and category mapping | `src/crowd_cost.py`, `src/crowd_cost_fast.py`, `tests/` | Four buckets computed from synthetic workbook; missing fields fail clearly; Decimal totals preserved | Create in-memory/temp `.xlsx` fixtures only | May reveal current implementation defects; fixes should be scoped | M | Confirm expected cost-table category semantics |
 | Reconciliation policy hardening | Placeholder helper and warning/fail policies are unclear | Makes mismatch behavior explicit before real runs | Specify and test mismatch statuses/tolerance behavior | `src/reconcile.py`, `config/cities/guan.yaml`, `tests/` | Count and amount mismatch outcomes are deterministic; policies are documented/tested | Pure unit tests with Decimal dictionaries | Requires policy decisions before implementation | S-M | Confirm whether mismatches should warn or fail |
 
 ## Recommended Next Task
 
-**Safe public entrypoint and fixture smoke test**
+**Cross-table reconciliation policy hardening**
 
-Why: correctness and data safety come first. Before changing business calculations, the project should stop advertising a command that can run a legacy, absolute-path pipeline and should prove the intended pipeline can run against synthetic data without reading or mutating real files.
+Why: the public pipeline now has safe entry and synthetic crowd-cost coverage, so the next correctness risk is ambiguous reconciliation behavior.
 
-Recommended Phase 2C acceptance criteria:
+Recommended Phase 2E acceptance criteria:
 
-- The default documented command no longer depends on local absolute finance file paths.
-- The authoritative pipeline entrypoint is explicit and fails clearly when required inputs are absent.
-- A fixture-based smoke test creates only synthetic inputs in a temporary directory.
-- The smoke test verifies generated outputs are confined to a temp/run directory.
-- The smoke test verifies input fixture hashes are unchanged after the run.
-- Existing 15 baseline tests continue to pass.
+- Reconciliation policies are explicit for mismatch warning vs failure.
+- Placeholder behavior is either implemented or formally blocked with stable status.
+- Synthetic tests cover matching, mismatch, tolerance, and blocked cases.
+- Result contracts expose reconciliation status without implying unverified success.
 
 Out of scope for the recommended task:
 
-- Changing income, fee, crowd-cost, or reconciliation formulas.
+- Changing income, fee, or crowd-cost formulas.
 - Reading or running real finance files.
-- Cleaning existing `runs` outputs.
-- Adding external APIs, notifications, remotes, or UI.
+- Adding frontend, database, external APIs, notifications, remotes, or UI.

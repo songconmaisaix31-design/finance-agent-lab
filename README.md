@@ -29,9 +29,15 @@ The future frontend-facing result contract is versioned in:
 - `schemas/run-result.schema.json`
 - `schemas/run-manifest.schema.json`
 
+Current crowd-cost status:
+
+- `guan` synthetic smoke runs include crowd-cost extraction from `crowd_cost.xlsx`.
+- The smoke path covers field mapping, normalization, income, headquarters fee, team delivery fee, crowd-cost extraction, report generation, and result contracts.
+- Existing crowd-cost bucket rules are implemented and tested with synthetic data, but business approval remains `unverified`.
+
 Safety notes:
 
 - Do not use real finance files in tests.
 - Do not commit input data, reports, local run output, credentials, or `.env` files.
-- Unknown income or delivery types fail closed by default and produce a blocked result.
+- Unknown income, delivery, or crowd-cost types fail closed by default and produce a blocked result.
 - The legacy `python -m src.pipeline` entrypoint is deprecated and does not run accounting by default.
