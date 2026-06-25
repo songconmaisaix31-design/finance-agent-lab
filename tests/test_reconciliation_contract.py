@@ -33,6 +33,9 @@ def make_contract_fixture():
         "schema_version": "1.0",
         "run_id": "guan-test",
         "city": {"id": "guan", "name": "guan"},
+        "pipeline": {"profile_id": "standard-finance-pipeline", "version": 1},
+        "storage": {"namespace": "guan"},
+        "rules": {"rule_set_id": "guan-rules", "status": "unverified"},
         "status": "success",
         "config": {"version": 1, "sha256": CONFIG_HASH, "approval_status": "unverified"},
         "costs": {
@@ -59,6 +62,9 @@ def make_contract_fixture():
         "schema_version": "1.0",
         "run_id": "guan-test",
         "city_id": "guan",
+        "pipeline": {"profile_id": "standard-finance-pipeline", "version": 1},
+        "storage": {"namespace": "guan"},
+        "rules": {"rule_set_id": "guan-rules", "status": "unverified"},
         "status": "success",
         "config": {"sha256": CONFIG_HASH, "version": 1, "approval_status": "unverified"},
         "artifacts": [dict(artifact_entry)],
@@ -68,6 +74,11 @@ def make_contract_fixture():
         "city_id": "guan",
         "status": "success",
         "config_sha256": CONFIG_HASH,
+        "pipeline_profile_id": "standard-finance-pipeline",
+        "pipeline_profile_version": 1,
+        "storage_namespace": "guan",
+        "rule_set_id": "guan-rules",
+        "rule_status": "unverified",
         "unknown_type_policy": "error",
     }
     input_manifest = {

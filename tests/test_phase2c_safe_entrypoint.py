@@ -260,6 +260,12 @@ class TestSmokeContract(unittest.TestCase):
 
             self.assertEqual(summary["status"], "success")
             self.assertEqual(summary["city"]["id"], "guan")
+            self.assertEqual(summary["pipeline"], {"profile_id": "standard-finance-pipeline", "version": 1})
+            self.assertEqual(summary["storage"]["namespace"], "guan")
+            self.assertEqual(summary["rules"], {"rule_set_id": "guan-rules", "status": "unverified"})
+            self.assertEqual(manifest["pipeline"], summary["pipeline"])
+            self.assertEqual(manifest["storage"], summary["storage"])
+            self.assertEqual(manifest["rules"], summary["rules"])
             self.assertEqual(summary["reconciliation"]["status"], "passed")
             self.assertEqual(summary["reconciliation"]["summary"]["failed"], 0)
             self.assertEqual(summary["reconciliation"]["summary"]["blocked"], 0)
