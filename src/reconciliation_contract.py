@@ -302,6 +302,20 @@ def _add_artifact_checks(builder: ReconciliationBuilder, summary: dict[str, Any]
             actual=_safe_keys(actual_artifacts),
         )
 
+    current_city = summary.get("city", {}).get("id")
+    other_city_refs = _other_city_path_refs([*summary_artifacts, *manifest_artifacts, *actual_artifacts], current_city)
+    builder.add(
+        "artifact.city_path_isolation",
+        "structural",
+        "fail" if other_city_refs else "pass",
+        "blocking",
+        "Artifact paths must not reference another city namespace.",
+        expected="no other city namespace references",
+        actual=",".join(other_city_refs),
+        error_code="CITY_STORAGE_NAMESPACE_MISMATCH" if other_city_refs else None,
+        safe_message="Artifact path references another city namespace." if other_city_refs else None,
+    )
+
 
 def _add_contract_checks(
     builder: ReconciliationBuilder,
@@ -331,6 +345,36 @@ def _add_contract_checks(
         "Run status must match result summary and run manifest.",
         expected=request_context.get("status"),
         actual=[summary.get("status"), manifest.get("status")],
+        error_code="RECON_STATUS_MISMATCH",
+    )
+    _add_equality_check(
+        builder,
+        "contract.pipeline_profile",
+        "Pipeline profile must match request, result summary, and run manifest.",
+        expected=f"{request_context.get('pipeline_profile_id')}:{request_context.get('pipeline_profile_version')}",
+        actual=[
+            f"{summary.get('pipeline', {}).get('profile_id')}:{summary.get('pipeline', {}).get('version')}",
+            f"{manifest.get('pipeline', {}).get('profile_id')}:{manifest.get('pipeline', {}).get('version')}",
+        ],
+        error_code="RECON_STATUS_MISMATCH",
+    )
+    _add_equality_check(
+        builder,
+        "contract.storage_namespace",
+        "Storage namespace must match city profile, result summary, and run manifest.",
+        expected=request_context.get("storage_namespace"),
+        actual=[summary.get("storage", {}).get("namespace"), manifest.get("storage", {}).get("namespace")],
+        error_code="CITY_STORAGE_NAMESPACE_MISMATCH",
+    )
+    _add_equality_check(
+        builder,
+        "contract.rule_status",
+        "Rule set and status must match city profile, result summary, and run manifest.",
+        expected=f"{request_context.get('rule_set_id')}:{request_context.get('rule_status')}",
+        actual=[
+            f"{summary.get('rules', {}).get('rule_set_id')}:{summary.get('rules', {}).get('status')}",
+            f"{manifest.get('rules', {}).get('rule_set_id')}:{manifest.get('rules', {}).get('status')}",
+        ],
         error_code="RECON_STATUS_MISMATCH",
     )
     _add_equality_check(
@@ -486,6 +530,18 @@ def _decimal_text(value: Decimal) -> str:
 
 def _safe_keys(index: dict[str, Any]) -> str:
     return ",".join(sorted(index))
+
+
+def _other_city_path_refs(paths, current_city: str | None) -> list[str]:
+    city_ids = {"guan", "xianghe", "yicheng", "yongcheng", "queshan", "biyang"}
+    refs = []
+    for path in sorted(set(paths)):
+        parts = set(str(path).replace("\\", "/").split("/"))
+        for city_id in sorted(city_ids - {current_city}):
+            if city_id in parts:
+                refs.append(path)
+                break
+    return refs
 
 
 def _safe_value(value: Any) -> str:

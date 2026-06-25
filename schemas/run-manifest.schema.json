@@ -10,6 +10,9 @@
     "city_id",
     "mode",
     "status",
+    "pipeline",
+    "storage",
+    "rules",
     "started_at",
     "ended_at",
     "input",
@@ -27,6 +30,32 @@
     "city_id": { "type": "string" },
     "mode": { "enum": ["plan", "execute", "audit"] },
     "status": { "enum": ["success", "blocked", "failed", "planned"] },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "version"],
+      "properties": {
+        "profile_id": { "type": "string" },
+        "version": { "type": "integer" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace"],
+      "properties": {
+        "namespace": { "type": "string" }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_set_id", "status"],
+      "properties": {
+        "rule_set_id": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
     "started_at": { "type": "string" },
     "ended_at": { "type": "string" },
     "input": {

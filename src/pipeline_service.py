@@ -59,6 +59,16 @@ class UnknownBusinessTypeError(PipelineError):
     error_code = "UNKNOWN_BUSINESS_TYPE"
 
 
+class CityRuleSetMissingError(PipelineError):
+    exit_code = 5
+    error_code = "CITY_RULE_SET_MISSING"
+
+
+class CityNamespaceMismatchError(PipelineError):
+    exit_code = 3
+    error_code = "CITY_STORAGE_NAMESPACE_MISMATCH"
+
+
 class OutputContractError(PipelineError):
     exit_code = 7
     error_code = "OUTPUT_CONTRACT_INVALID"
@@ -114,7 +124,8 @@ def make_run_request(args: argparse.Namespace) -> RunRequest:
 
 def plan_request(request: RunRequest) -> PipelineResult:
     profile = _load_profile(request.city_id)
-    input_path, output_root = _validate_paths(request.input_path, request.output_root)
+    input_path, output_root = _validate_paths(request.input_path, request.output_root, profile.city_id)
+    _validate_city_namespace_paths(profile, input_path, output_root)
     _validate_required_inputs(input_path)
     return PipelineResult(
         status="planned",
@@ -132,7 +143,10 @@ def run_request(request: RunRequest) -> PipelineResult:
         return plan_request(request)
 
     profile = _load_profile(request.city_id)
-    input_path, output_root = _validate_paths(request.input_path, request.output_root)
+    input_path, output_root = _validate_paths(request.input_path, request.output_root, profile.city_id)
+    _validate_city_namespace_paths(profile, input_path, output_root)
+    if profile.rule_status == "missing":
+        raise CityRuleSetMissingError(f"Business rule set missing for city_id: {profile.city_id}")
     _validate_required_inputs(input_path)
 
     run_id = request.run_id or _generate_run_id(profile.city_id)
@@ -336,7 +350,7 @@ def _is_relative_to(child: Path, parent: Path) -> bool:
         return False
 
 
-def _validate_paths(input_path: Path, output_root: Path) -> tuple[Path, Path]:
+def _validate_paths(input_path: Path, output_root: Path, city_id: str) -> tuple[Path, Path]:
     resolved_input = _resolve(input_path)
     resolved_output = _resolve(output_root)
     if not resolved_input.exists():
@@ -347,9 +361,37 @@ def _validate_paths(input_path: Path, output_root: Path) -> tuple[Path, Path]:
         raise PathSafetyError("Input path and output root must be different")
     if _is_relative_to(resolved_output, resolved_input):
         raise PathSafetyError("Output root must not be inside input path")
-    if _is_relative_to(resolved_input, resolved_output):
+    if _is_relative_to(resolved_input, resolved_output) and not _is_allowed_city_root_input(resolved_input, resolved_output, city_id):
         raise PathSafetyError("Input path must not be inside output root")
     return resolved_input, resolved_output
+
+
+def _is_allowed_city_root_input(input_path: Path, output_root: Path, city_id: str) -> bool:
+    try:
+        rel = input_path.relative_to(output_root)
+    except ValueError:
+        return False
+    return output_root.name.lower() == city_id and rel.parts == ("incoming",)
+
+
+def _validate_city_namespace_paths(profile: CityProfile, input_path: Path, output_root: Path):
+    input_city = _detect_city_namespace(input_path)
+    output_city = _detect_city_namespace(output_root)
+    if input_city and input_city != profile.city_id:
+        raise CityNamespaceMismatchError(f"Input namespace belongs to {input_city}, not {profile.city_id}")
+    if output_city and output_city != profile.city_id:
+        raise CityNamespaceMismatchError(f"Output namespace belongs to {output_city}, not {profile.city_id}")
+
+
+def _detect_city_namespace(path: Path) -> str | None:
+    city_ids = {"guan", "xianghe", "yicheng", "yongcheng", "queshan", "biyang"}
+    namespace_names = {"incoming", "staging", "runs", "exports", "quarantine", "archive"}
+    parts = [part.lower() for part in path.parts]
+    for index, part in enumerate(parts):
+        if part in city_ids:
+            if index == len(parts) - 1 or (index + 1 < len(parts) and parts[index + 1] in namespace_names):
+                return part
+    return None
 
 
 def _validate_required_inputs(input_path: Path):
@@ -547,6 +589,17 @@ def _build_result_summary(
         "schema_version": "1.0",
         "run_id": run_id,
         "city": {"id": profile.city_id, "name": profile.display_name},
+        "pipeline": {
+            "profile_id": profile.pipeline_profile.profile_id,
+            "version": profile.pipeline_profile.version,
+        },
+        "storage": {
+            "namespace": profile.storage_namespace,
+        },
+        "rules": {
+            "rule_set_id": profile.rule_set_id,
+            "status": profile.rule_status,
+        },
         "status": status,
         "period": {"start": None, "end": None},
         "config": {
@@ -599,6 +652,17 @@ def _build_run_manifest(
         "city_id": profile.city_id,
         "mode": request.mode,
         "status": status,
+        "pipeline": {
+            "profile_id": profile.pipeline_profile.profile_id,
+            "version": profile.pipeline_profile.version,
+        },
+        "storage": {
+            "namespace": profile.storage_namespace,
+        },
+        "rules": {
+            "rule_set_id": profile.rule_set_id,
+            "status": profile.rule_status,
+        },
         "started_at": started_at,
         "ended_at": ended_at,
         "input": {
@@ -631,6 +695,11 @@ def _reconciliation_context(run_id: str, profile: CityProfile, request: RunReque
         "city_id": profile.city_id,
         "status": status,
         "config_sha256": profile.config_sha256,
+        "pipeline_profile_id": profile.pipeline_profile.profile_id,
+        "pipeline_profile_version": profile.pipeline_profile.version,
+        "storage_namespace": profile.storage_namespace,
+        "rule_set_id": profile.rule_set_id,
+        "rule_status": profile.rule_status,
         "unknown_type_policy": request.unknown_type_policy,
     }
 
