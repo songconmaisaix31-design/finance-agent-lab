@@ -42,7 +42,26 @@ def write_billing_workbook(path: Path, rows: list[dict]):
     wb.save(path)
 
 
-def make_smoke_input(base: Path, *, unknown_income=False, unknown_delivery=False) -> Path:
+def write_crowd_cost_workbook(path: Path, *, unknown_crowd=False):
+    headers = ["日期", "配送状态", "是否零售", "合并区县名称", "is_group_order", "有效完成单", "总成本"]
+    rows = [
+        ["2026-06-23", "配送成功", 0, "固安", 0, "1", "10.00"],
+        ["2026-06-23", "配送成功", 0, "固安", 1, "2", "20.00"],
+        ["2026-06-23", "配送成功", 1, "固安", 0, "3", "30.00"],
+        ["2026-06-23", "配送成功", 1, "固安", 1, "4", "40.00"],
+    ]
+    if unknown_crowd:
+        rows.append(["2026-06-23", "配送成功", 9, "固安", 9, "5", "50.00"])
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "月"
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def make_smoke_input(base: Path, *, unknown_income=False, unknown_delivery=False, unknown_crowd=False) -> Path:
     input_dir = base / "input guan 合成"
     input_dir.mkdir(parents=True)
     service_package = "合成未知服务包" if unknown_income else "代理商E配送"
@@ -66,6 +85,7 @@ def make_smoke_input(base: Path, *, unknown_income=False, unknown_delivery=False
         }
     ])
     write_billing_workbook(input_dir / "billing_retail.xlsx", [])
+    write_crowd_cost_workbook(input_dir / "crowd_cost.xlsx", unknown_crowd=unknown_crowd)
     return input_dir
 
 
@@ -240,6 +260,12 @@ class TestSmokeContract(unittest.TestCase):
             self.assertNotIn("Desktop", json.dumps(summary, ensure_ascii=False))
             self.assertNotIn(str(input_dir), json.dumps(summary, ensure_ascii=False))
             self.assertIsInstance(summary["metrics"]["food_income_total"], str)
+            self.assertEqual(summary["costs"]["crowd"]["status"], "complete")
+            self.assertEqual(summary["costs"]["crowd"]["total"], "100.00")
+            self.assertEqual([b["id"] for b in summary["costs"]["crowd"]["buckets"]], [
+                "catering_normal", "catering_group", "retail_normal", "retail_group",
+            ])
+            self.assertTrue(all(isinstance(b["amount"], str) for b in summary["costs"]["crowd"]["buckets"]))
 
             events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
             self.assertTrue(all(e["run_id"] == summary["run_id"] for e in events))
@@ -289,6 +315,31 @@ class TestUnknownTypePolicy(unittest.TestCase):
             self.assertEqual(summary["status"], "blocked")
             self.assertEqual(summary["validation"]["unknown_income_types"], 1)
             self.assertEqual(len(unknown["unknown_income_types"]), 1)
+
+    def test_unknown_crowd_cost_defaults_to_blocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            input_dir = make_smoke_input(base, unknown_crowd=True)
+            out = base / "out"
+            result = run_cli(["run", "--city", "guan", "--input", str(input_dir), "--output", str(out), "--execute"])
+            self.assertEqual(result.returncode, 5)
+            run_dir = next((out / "runs").iterdir())
+            summary = json.loads((run_dir / "result-summary.json").read_text(encoding="utf-8"))
+            unknown = json.loads((run_dir / "unknown-types.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "blocked")
+            self.assertEqual(summary["costs"]["crowd"]["status"], "blocked")
+            self.assertEqual(summary["validation"]["unknown_crowd_cost_rows"], 1)
+            self.assertEqual(len(unknown["unknown_crowd_cost_rows"]), 1)
+
+    def test_corrupted_crowd_cost_file_returns_stable_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            input_dir = make_smoke_input(base)
+            (input_dir / "crowd_cost.xlsx").write_text("not an excel workbook", encoding="utf-8")
+            result = run_cli(["run", "--city", "guan", "--input", str(input_dir), "--output", str(base / "out"), "--execute"])
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("CROWD_FILE_INVALID", result.stderr + result.stdout)
+            self.assertNotIn("Traceback", result.stderr + result.stdout)
 
     def test_unknown_delivery_defaults_to_blocked(self):
         with tempfile.TemporaryDirectory() as td:
