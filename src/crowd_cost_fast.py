@@ -21,7 +21,11 @@ def _normalize(v):
 def _detect_crowd_columns(filepath: str, sheet_name: str, field_names: list[str]) -> dict:
     """Detect header row and return column index map using read_only streaming."""
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-    ws = wb[sheet_name]
+    try:
+        ws = wb[sheet_name]
+    except KeyError:
+        wb.close()
+        raise
 
     header_row = -1
     col_map = {}
@@ -52,10 +56,32 @@ def _detect_crowd_columns(filepath: str, sheet_name: str, field_names: list[str]
     return col_map, header_row
 
 
+def _parse_int_flag(value, field_name: str) -> tuple[int | None, str | None]:
+    if value is None or str(value).strip() == "":
+        return None, f"{field_name}:empty"
+    try:
+        return int(float(str(value))), None
+    except (ValueError, TypeError):
+        return None, f"{field_name}:invalid_integer"
+
+
+def _parse_decimal(value, field_name: str) -> tuple[Decimal | None, str | None]:
+    if value is None or str(value).strip() == "":
+        return None, f"{field_name}:empty"
+    try:
+        return Decimal(str(value)), None
+    except (InvalidOperation, ValueError):
+        return None, f"{field_name}:invalid_decimal"
+
+
 def load_crowd_cost_rows_fast(filepath: str, sheet_name: str, col_map: dict, data_start_row: int) -> list[dict]:
     """Load crowd cost rows using read_only streaming with max_col optimization."""
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-    ws = wb[sheet_name]
+    try:
+        ws = wb[sheet_name]
+    except KeyError:
+        wb.close()
+        raise
 
     col_date = col_map["日期"]
     col_status = col_map["配送状态"]
@@ -78,33 +104,22 @@ def load_crowd_cost_rows_fast(filepath: str, sheet_name: str, col_map: dict, dat
 
         date_val = _normalize(row_vals[col_date] if len(row_vals) > col_date else None)
 
-        is_retail = 0
-        if len(row_vals) > col_retail and row_vals[col_retail] is not None:
-            try:
-                is_retail = int(float(str(row_vals[col_retail])))
-            except (ValueError, TypeError):
-                pass
+        parse_errors = []
+        is_retail, err = _parse_int_flag(row_vals[col_retail] if len(row_vals) > col_retail else None, "is_retail")
+        if err:
+            parse_errors.append(err)
 
-        is_group = 0
-        if len(row_vals) > col_group and row_vals[col_group] is not None:
-            try:
-                is_group = int(float(str(row_vals[col_group])))
-            except (ValueError, TypeError):
-                pass
+        is_group, err = _parse_int_flag(row_vals[col_group] if len(row_vals) > col_group else None, "is_group_order")
+        if err:
+            parse_errors.append(err)
 
-        completed = Decimal("0")
-        if len(row_vals) > col_completed and row_vals[col_completed] is not None:
-            try:
-                completed = Decimal(str(row_vals[col_completed]))
-            except (InvalidOperation, ValueError):
-                pass
+        completed, err = _parse_decimal(row_vals[col_completed] if len(row_vals) > col_completed else None, "completed_orders")
+        if err:
+            parse_errors.append(err)
 
-        total_cost = Decimal("0")
-        if len(row_vals) > col_cost and row_vals[col_cost] is not None:
-            try:
-                total_cost = Decimal(str(row_vals[col_cost]))
-            except (InvalidOperation, ValueError):
-                pass
+        total_cost, err = _parse_decimal(row_vals[col_cost] if len(row_vals) > col_cost else None, "total_cost")
+        if err:
+            parse_errors.append(err)
 
         rows.append({
             "source_file": os.path.basename(filepath),
@@ -117,6 +132,7 @@ def load_crowd_cost_rows_fast(filepath: str, sheet_name: str, col_map: dict, dat
             "is_group_order": is_group,
             "completed_orders": completed,
             "total_cost": total_cost,
+            "parse_errors": parse_errors,
         })
 
     wb.close()

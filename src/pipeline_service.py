@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .city_registry import CityProfile, CityRegistryError, get_city_profile
+from .crowd_cost_contract import CrowdCostError, build_crowd_cost_result, crowd_result_for_summary
 from .fee_calc import compute_bill_crowd_order_counts, compute_hq_fee, compute_team_delivery_cost
 from .field_mapper import map_billing_sheet
 from .income_calc import compute_income
@@ -160,18 +161,20 @@ def run_request(request: RunRequest) -> PipelineResult:
         unknown = pipeline_data["unknown"]
         unknown_income_count = len(unknown["unknown_income_types"])
         unknown_delivery_count = len(unknown["unknown_delivery_types"])
+        unknown_crowd_count = len(unknown.get("unknown_crowd_cost_rows", []))
+        rejected_crowd_count = pipeline_data.get("costs", {}).get("crowd", {}).get("rejected_rows", 0)
         should_block = (
             request.unknown_type_policy == "error"
-            and (unknown_income_count > 0 or unknown_delivery_count > 0)
+            and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0)
         )
 
         if should_block:
             status = "blocked"
             exit_code = 5
             error_code = UnknownBusinessTypeError.error_code
-            error_message = "Unknown income or delivery types detected"
+            error_message = "Unknown or invalid business types detected"
             logger.event("error", "unknown_types_blocked", "business_validation", "blocked", error_code)
-        elif request.mode == "audit" and (unknown_income_count > 0 or unknown_delivery_count > 0):
+        elif request.mode == "audit" and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0):
             status = "blocked"
             exit_code = 5
             error_code = UnknownBusinessTypeError.error_code
@@ -199,6 +202,7 @@ def run_request(request: RunRequest) -> PipelineResult:
             "unknown_type_policy": request.unknown_type_policy,
             "unknown_income_types": unknown["unknown_income_types"],
             "unknown_delivery_types": unknown["unknown_delivery_types"],
+            "unknown_crowd_cost_rows": unknown.get("unknown_crowd_cost_rows", []),
             "created_at": utc_now_iso(),
         }
         atomic_write_json(run_dir / "unknown-types.json", unknown_doc)
@@ -226,11 +230,19 @@ def run_request(request: RunRequest) -> PipelineResult:
             exit_code = exc.exit_code
             error_code = exc.error_code
             error_message = str(exc)
+        elif isinstance(exc, CrowdCostError):
+            exit_code = InputValidationError.exit_code
+            error_code = exc.error_code
+            error_message = exc.safe_message
         else:
             exit_code = 6
             error_code = "PIPELINE_EXECUTION_FAILED"
             error_message = str(exc)
         logger.event("error", "pipeline_failed", "exception", "failed", error_code)
+        if isinstance(exc, CrowdCostError):
+            wrapped = InputValidationError(f"{exc.error_code}: {exc.safe_message}")
+            wrapped.error_code = exc.error_code
+            raise wrapped from exc
         raise
     finally:
         duration_ms = int((time.perf_counter() - start_perf) * 1000)
@@ -285,7 +297,7 @@ def _validate_paths(input_path: Path, output_root: Path) -> tuple[Path, Path]:
 
 
 def _validate_required_inputs(input_path: Path):
-    required = ["billing_food.xlsx", "billing_retail.xlsx"]
+    required = ["billing_food.xlsx", "billing_retail.xlsx", "crowd_cost.xlsx"]
     missing = [name for name in required if not (input_path / name).is_file()]
     if missing:
         raise InputValidationError(f"Missing required synthetic-compatible inputs: {missing}")
@@ -351,11 +363,13 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
     )
     food_crowd_bill = compute_bill_crowd_order_counts(food_rows, cfg["food_delivery_categories"], positive_only=True)
     retail_crowd_bill = compute_bill_crowd_order_counts(retail_rows, cfg["retail_delivery_categories"], positive_only=True)
-    crowd_buckets = _zero_crowd_buckets()
+    crowd_cost_file = input_path / cfg["crowd_cost"].get("input_file_name", "crowd_cost.xlsx")
+    crowd_cost_result = build_crowd_cost_result(crowd_cost_file, cfg)
+    crowd_buckets = crowd_cost_result["raw_buckets"]
     crowd_reconciliation = {
         "all_passed": True,
         "checks": [],
-        "capability_status": "not_evaluated_in_smoke",
+        "capability_status": "partial_unverified",
     }
     recon = run_all_checks(
         food_income, retail_income, food_team, retail_team,
@@ -376,7 +390,7 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
         "专送拼团单均成本": str(cfg["team_delivery"]["group_unit_cost"]),
         "专送正常单单均成本": str(cfg["team_delivery"]["normal_unit_cost"]),
         "开始时间": utc_now_iso(),
-        "capability_note": "Synthetic smoke run; crowd cost and full reconciliation are not business-validated in Phase 2C.",
+        "capability_note": "Synthetic smoke run; crowd cost extraction is characterized with unverified business rules. Full reconciliation is not complete.",
     }
     generate_report(
         str(report_path), run_info, food_income, retail_income, food_hq, retail_hq,
@@ -400,10 +414,14 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
                 {"business": "零售", **u} for u in retail_income["unknown_types"]
             ],
             "unknown_delivery_types": unknown_delivery,
+            "unknown_crowd_cost_rows": crowd_cost_result["unknown_rows"],
+        },
+        "costs": {
+            "crowd": crowd_result_for_summary(crowd_cost_result),
         },
         "capabilities": {
-            "crowd_cost": "not_evaluated_in_smoke",
-            "reconciliation": "limited_smoke_checks",
+            "crowd_cost": "complete" if crowd_cost_result["status"] == "complete" else "blocked",
+            "reconciliation": "partial_unverified",
             "report": "generated",
         },
     }
@@ -467,7 +485,7 @@ def _build_result_summary(
 ) -> dict:
     recon = data["reconciliation"]
     warnings = 0
-    if data["capabilities"]["crowd_cost"] != "validated":
+    if data["capabilities"]["crowd_cost"] != "complete":
         warnings += 1
     return {
         "schema_version": "1.0",
@@ -493,9 +511,12 @@ def _build_result_summary(
         "validation": {
             "unknown_income_types": unknown_income_count,
             "unknown_delivery_types": unknown_delivery_count,
+            "unknown_crowd_cost_rows": len(data["unknown"].get("unknown_crowd_cost_rows", [])),
+            "rejected_crowd_cost_rows": data["costs"]["crowd"].get("rejected_rows", 0),
             "reconciliation_errors": 0 if recon.get("all_passed") else 1,
             "warnings": warnings,
         },
+        "costs": data["costs"],
         "capabilities": data["capabilities"],
         "artifacts": artifacts,
         "created_at": created_at,

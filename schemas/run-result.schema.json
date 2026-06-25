@@ -60,8 +60,56 @@
       "properties": {
         "unknown_income_types": { "type": "integer", "minimum": 0 },
         "unknown_delivery_types": { "type": "integer", "minimum": 0 },
+        "unknown_crowd_cost_rows": { "type": "integer", "minimum": 0 },
+        "rejected_crowd_cost_rows": { "type": "integer", "minimum": 0 },
         "reconciliation_errors": { "type": "integer", "minimum": 0 },
         "warnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "crowd": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "currency",
+            "total",
+            "buckets",
+            "source_rows",
+            "accepted_rows",
+            "unknown_rows",
+            "rejected_rows",
+            "rule_approval_status"
+          ],
+          "properties": {
+            "status": { "enum": ["complete", "blocked", "unavailable"] },
+            "currency": { "const": "CNY" },
+            "total": { "type": "string" },
+            "buckets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "amount", "completed_orders", "approval_status"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "amount": { "type": "string" },
+                  "completed_orders": { "type": "string" },
+                  "approval_status": { "type": "string" }
+                }
+              }
+            },
+            "source_rows": { "type": "integer", "minimum": 0 },
+            "accepted_rows": { "type": "integer", "minimum": 0 },
+            "unknown_rows": { "type": "integer", "minimum": 0 },
+            "rejected_rows": { "type": "integer", "minimum": 0 },
+            "rule_approval_status": { "type": "string" }
+          }
+        }
       }
     },
     "capabilities": {

@@ -76,6 +76,9 @@ retail_delivery_categories:
 
 crowd_cost:
   file_name: "6.23众包成本.xlsx"
+  input_file_name: "crowd_cost.xlsx"
+  enabled: true
+  rule_approval_status: unverified
   detail_sheet: "月"
   check_sheet: "整体"
   reference_sheet: "周对比"

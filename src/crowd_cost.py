@@ -41,16 +41,39 @@ def extract_crowd_cost_buckets(cost_filepath: str, city_config: dict) -> dict:
         "retail_group": {"completed_orders": Decimal("0"), "total_cost": Decimal("0"), "rows": []},
     }
 
+    rejected_rows = []
+    unknown_rows = []
     cm = category_mapping
     for r in filtered:
+        if r.get("parse_errors"):
+            rejected_rows.append({
+                "source_file": r.get("source_file"),
+                "source_sheet": r.get("source_sheet"),
+                "source_row": r.get("source_row"),
+                "error_code": "CROWD_AMOUNT_INVALID" if any("total_cost" in e or "completed_orders" in e for e in r["parse_errors"]) else "CROWD_HEADER_INVALID",
+                "safe_message": "; ".join(r["parse_errors"]),
+            })
+            continue
         is_retail = r["is_retail"]
         is_group = r["is_group_order"]
+        matched = False
         for bucket_name, bucket_def in cm.items():
             if is_retail == bucket_def["is_retail"] and is_group == bucket_def["is_group_order"]:
                 buckets[bucket_name]["completed_orders"] += r["completed_orders"]
                 buckets[bucket_name]["total_cost"] += r["total_cost"]
                 buckets[bucket_name]["rows"].append(r)
+                matched = True
                 break
+        if not matched:
+            unknown_rows.append({
+                "source_file": r.get("source_file"),
+                "source_sheet": r.get("source_sheet"),
+                "source_row": r.get("source_row"),
+                "error_code": "CROWD_UNKNOWN_TYPE",
+                "safe_message": "Crowd cost row does not match configured category mapping",
+                "is_retail": str(is_retail),
+                "is_group_order": str(is_group),
+            })
 
     source_rows_all = []
     for bucket_name in buckets:
@@ -67,6 +90,8 @@ def extract_crowd_cost_buckets(cost_filepath: str, city_config: dict) -> dict:
     return {
         "buckets": buckets,
         "source_rows": source_rows_all,
+        "unknown_rows": unknown_rows,
+        "rejected_rows": rejected_rows,
         "filtered_row_count": len(filtered),
         "all_row_count": len(all_rows),
         "source_sheet": detail_sheet,
