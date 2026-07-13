@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-06-30T01:11:08.000Z",
+  "createdAt": "2026-06-29T16:04:01.866Z",
+  "id": "fin40reconcile",
+  "name": "FIN-40 Reconcile",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-40 Reconcile\nResponsibility: call the Python pipeline execution and reconciliation contract.\nInput: run_id.\nOutput: status, metrics, artifact paths.\nFailure: unknown business types, reconciliation errors, path safety, invalid inputs.\nPython: src.pipeline_service.run_request and src.reconciliation_contract.\n\nPhase 3: calls real persisted stage API; passes only run_id, status, metrics, and artifact paths."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs/' + $json.run_id + '/stages/reconcile'}}",
+        "sendBody": false,
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "retryOnFail": false
+      },
+      "id": "http-reconcile",
+      "name": "POST Reconcile Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Reconcile Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Reconcile Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "c1d103cf-3e1e-48bb-b779-bf8a2983e0c5",
+  "activeVersionId": "c1d103cf-3e1e-48bb-b779-bf8a2983e0c5",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

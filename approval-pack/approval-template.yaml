@@ -1,0 +1,17 @@
+schema_version: 1
+city_id: pending
+rule_set_id: pending
+decision_status: pending
+production_ready: false
+questions:
+  fee_rates_shared_across_cities: pending
+  income_whitelists_shared_across_cities: pending
+  field_aliases_shared_across_cities: pending
+  crowd_cost_bucket_mapping_shared_across_cities: pending
+  anomaly_policy_shared_across_cities: pending
+  cross_table_reconciliation_shared_across_cities: pending
+  amount_tolerance_policy: pending
+approver:
+  name: pending
+  date: pending
+notes: []

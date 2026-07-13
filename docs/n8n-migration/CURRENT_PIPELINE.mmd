@@ -1,0 +1,12 @@
+flowchart TD
+  A["CLI: python -m src.cli run --execute"] --> B["pipeline_service.run_request"]
+  B --> C["Validate city, paths, required files"]
+  C --> D["Field mapping"]
+  D --> E["Normalize billing rows"]
+  E --> F["Income calculation"]
+  F --> G["HQ fee calculation"]
+  G --> H["Team delivery and crowd cost"]
+  H --> I["Technical reconciliation"]
+  I --> J["Generate Excel report"]
+  J --> K["Write result-summary, manifest, reconciliation report"]
+  K --> L["Return exit code and run paths"]

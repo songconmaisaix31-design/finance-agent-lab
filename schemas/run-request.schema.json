@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finance-agent-lab.local/schemas/run-request.schema.json",
+  "title": "Pipeline Run Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["city_id", "input_path", "output_root"],
+  "properties": {
+    "run_id": { "type": ["string", "null"] },
+    "city_id": { "type": "string", "minLength": 1 },
+    "input_path": { "type": "string", "minLength": 1 },
+    "output_root": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["execute", "audit"], "default": "execute" },
+    "unknown_type_policy": { "enum": ["error", "report_only"], "default": "error" }
+  }
+}

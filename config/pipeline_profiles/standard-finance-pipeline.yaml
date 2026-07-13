@@ -1,0 +1,14 @@
+schema_version: 1
+profile_id: standard-finance-pipeline
+version: 1
+
+stages:
+  - manifest
+  - field_mapping
+  - normalization
+  - income
+  - fees
+  - crowd_cost
+  - technical_reconciliation
+  - reporting
+  - result_contract

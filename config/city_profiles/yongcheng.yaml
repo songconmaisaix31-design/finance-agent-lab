@@ -1,0 +1,31 @@
+schema_version: 1
+
+city:
+  id: yongcheng
+  display_name: 永城
+  currency: CNY
+
+pipeline:
+  profile_id: standard-finance-pipeline
+  version: 1
+
+storage:
+  namespace: yongcheng
+  root_env: FINANCE_DATA_ROOT
+
+rules:
+  rule_set_id: pending
+  version: null
+  status: missing
+
+capabilities:
+  billing_income: blocked
+  headquarters_fee: blocked
+  team_delivery_fee: blocked
+  crowd_cost: blocked
+  reconciliation_technical: enabled
+  reconciliation_business: unavailable
+
+approval_summary:
+  production_ready: false
+  rule_approval_status: missing

@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-06-30T01:10:59.000Z",
+  "createdAt": "2026-06-29T16:03:41.815Z",
+  "id": "fin10intake",
+  "name": "FIN-10 Intake",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-10 Intake\nResponsibility: validate request paths, city namespace, required files, and create an intake stage result.\nInput: run_id, city_id, input_path, output_root.\nOutput: stage status and small metrics only.\nFailure: invalid request, missing required files, unsafe path.\nPython: src.pipeline_service.plan_request via src.pipeline_adapter.\n\nPhase 3: calls real persisted stage API; passes only run_id, status, metrics, and artifact paths."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs/' + $json.run_id + '/stages/intake'}}",
+        "sendBody": false,
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "retryOnFail": false
+      },
+      "id": "http-intake",
+      "name": "POST Intake Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Intake Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Intake Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "14a27957-c5ea-46d3-ab0b-8bc25f8506e1",
+  "activeVersionId": "14a27957-c5ea-46d3-ab0b-8bc25f8506e1",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
