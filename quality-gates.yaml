@@ -1,0 +1,22 @@
+schema_version: 1
+quality_gates:
+  - id: intake_required
+    stage: intake
+    expression: status in ["success", "warning"]
+    failure_status: rejected
+  - id: calculation_required
+    stage: calculate
+    expression: status in ["success", "warning"]
+    failure_status: rejected
+  - id: reconciliation_required
+    stage: reconcile
+    expression: status in ["success", "warning"]
+    failure_status: rejected
+  - id: no_reconciliation_errors
+    stage: reconcile
+    expression: int(metrics.errors) == 0
+    failure_status: rejected
+  - id: report_artifact_required
+    stage: report
+    expression: int(metrics.artifact_count) > 0
+    failure_status: failed

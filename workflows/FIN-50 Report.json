@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-06-30T01:11:11.000Z",
+  "createdAt": "2026-06-29T16:04:07.627Z",
+  "id": "fin50report",
+  "name": "FIN-50 Report",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-50 Report\nResponsibility: expose report and artifact manifest paths.\nInput: run_id.\nOutput: artifact manifest and report count.\nFailure: reconcile artifacts missing or rejected.\nPython: src.report.generate_report output read through src.pipeline_adapter.\n\nPhase 3: calls real persisted stage API; passes only run_id, status, metrics, and artifact paths."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs/' + $json.run_id + '/stages/report'}}",
+        "sendBody": false,
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "retryOnFail": false
+      },
+      "id": "http-report",
+      "name": "POST Report Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Report Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Report Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "77a5e4c5-d7c7-49d7-a732-aafb1790691b",
+  "activeVersionId": "77a5e4c5-d7c7-49d7-a732-aafb1790691b",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

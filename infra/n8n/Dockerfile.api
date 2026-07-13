@@ -1,0 +1,24 @@
+FROM python:3.11.9-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    for attempt in 1 2 3 4 5; do \
+      python -m pip install --no-cache-dir --retries 10 --timeout 120 --index-url https://pypi.org/simple -r /app/requirements.txt && break; \
+      if [ "$attempt" = "5" ]; then exit 1; fi; \
+      sleep 5; \
+    done
+
+COPY config /app/config
+COPY schemas /app/schemas
+COPY src /app/src
+COPY quality-gates.yaml /app/quality-gates.yaml
+COPY orchestration /app/orchestration
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

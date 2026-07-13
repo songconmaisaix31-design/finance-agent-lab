@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finance-agent-lab.local/schemas/reconciliation-result.schema.json",
+  "title": "Reconciliation Stage Result",
+  "allOf": [
+    { "$ref": "stage-result.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "stage": { "const": "reconcile" },
+        "metrics": {
+          "type": "object",
+          "required": ["warnings", "errors"],
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

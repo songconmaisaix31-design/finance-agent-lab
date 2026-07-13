@@ -1,0 +1,13 @@
+schema_version: 1
+rule_set_id: guan-rules
+version: 1
+status: unverified
+source:
+  type: legacy_city_config
+  path: config/cities/guan.yaml
+approval:
+  production_ready: false
+  owner: pending
+  notes:
+    - Existing guan calculation source is retained for synthetic development runs.
+    - Business approval of fee rates, whitelists, field aliases, crowd-cost buckets, and tolerances is still pending.

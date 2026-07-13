@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finance-agent-lab.local/schemas/artifact-manifest.schema.json",
+  "title": "Artifact Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "artifacts"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "manifest_path": { "type": ["string", "null"] },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["name", "path", "media_type", "sha256", "size_bytes"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "absolute_path": { "type": "string" },
+          "media_type": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
