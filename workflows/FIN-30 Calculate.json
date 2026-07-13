@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-06-30T01:11:05.000Z",
+  "createdAt": "2026-06-29T16:03:55.911Z",
+  "id": "fin30calculate",
+  "name": "FIN-30 Calculate",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-30 Calculate\nResponsibility: mark the calculation stage in the orchestration contract.\nInput: run_id.\nOutput: stage status; no detail rows.\nFailure: prior normalize stage did not succeed.\nPython: src.income_calc, src.fee_calc, and src.crowd_cost_contract are executed by the Python pipeline.\n\nPhase 3: calls real persisted stage API; passes only run_id, status, metrics, and artifact paths."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs/' + $json.run_id + '/stages/calculate'}}",
+        "sendBody": false,
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "retryOnFail": false
+      },
+      "id": "http-calculate",
+      "name": "POST Calculate Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Calculate Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Calculate Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "c271c06d-c5ec-414d-a51a-e90b0420bc5f",
+  "activeVersionId": "c271c06d-c5ec-414d-a51a-e90b0420bc5f",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

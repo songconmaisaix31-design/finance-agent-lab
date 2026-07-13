@@ -1,0 +1,143 @@
+{
+  "updatedAt": "2026-06-30T01:11:15.000Z",
+  "createdAt": "2026-06-29T16:04:12.890Z",
+  "id": "fin90error",
+  "name": "FIN-90 Error",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-90 Error\nOutputs a safe, fixed error summary for manual review.\nNo notifications, no credentials, no stack traces."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "run_id",
+              "name": "run_id",
+              "value": "={{$json.run_id || null}}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "failed_stage",
+              "name": "failed_stage",
+              "value": "={{$json.stage || null}}",
+              "type": "string"
+            },
+            {
+              "id": "error_code",
+              "name": "error_code",
+              "value": "={{$json.error?.code || $json.error_code || 'UNKNOWN_ERROR'}}",
+              "type": "string"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "={{String($json.error?.message || $json.message || \"\").replace(/[A-Za-z]:\\\\[^\\s]+/g, \"<local-path>\")}}",
+              "type": "string"
+            },
+            {
+              "id": "retryable",
+              "name": "retryable",
+              "value": "={{Boolean($json.retryable || false)}}",
+              "type": "boolean"
+            },
+            {
+              "id": "artifact_path",
+              "name": "artifact_path",
+              "value": "={{$json.artifacts?.[0]?.absolute_path || $json.artifacts?.[0]?.path || null}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-error",
+      "name": "Error Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        300,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Error Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Error Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "b2abfcfd-5eb2-4a2f-a3b8-15a289192972",
+  "activeVersionId": "b2abfcfd-5eb2-4a2f-a3b8-15a289192972",
+  "versionCounter": 3,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

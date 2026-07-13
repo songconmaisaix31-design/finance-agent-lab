@@ -1,0 +1,50 @@
+services:
+  n8n:
+    image: n8nio/n8n:2.26.8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_HOST: 127.0.0.1
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in a local .env file}
+      FINANCE_PIPELINE_API_URL: http://finance-pipeline-api:8000
+      PIPELINE_HTTP_TIMEOUT_MS: "600000"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../../workflows:/workflows:ro
+    depends_on:
+      finance-pipeline-api:
+        condition: service_healthy
+    networks:
+      - finance-pipeline
+
+  finance-pipeline-api:
+    build:
+      context: ../..
+      dockerfile: infra/n8n/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      FINANCE_DATA_ROOT: /finance-data
+      FINANCE_PIPELINE_STATE_DIR: /finance-data/.pipeline-state
+      FINANCE_PIPELINE_ALLOW_ROOTS: /finance-data
+    volumes:
+      - ${FINANCE_DATA_ROOT:?set FINANCE_DATA_ROOT in a local .env file}:/finance-data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - finance-pipeline
+
+volumes:
+  n8n_data:
+
+networks:
+  finance-pipeline:
+    driver: bridge

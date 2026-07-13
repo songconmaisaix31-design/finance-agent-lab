@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-06-30T01:11:02.000Z",
+  "createdAt": "2026-06-29T16:03:50.075Z",
+  "id": "fin20normalize",
+  "name": "FIN-20 Normalize",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-20 Normalize\nResponsibility: advance the normalized-data contract without moving detail rows through n8n.\nInput: run_id.\nOutput: stage status and contract metrics.\nFailure: prior intake stage did not succeed.\nPython: src.field_mapper and src.normalizer remain inside Python execution.\n\nPhase 3: calls real persisted stage API; passes only run_id, status, metrics, and artifact paths."
+      },
+      "id": "sticky-note",
+      "name": "Stage Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs/' + $json.run_id + '/stages/normalize'}}",
+        "sendBody": false,
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "retryOnFail": false
+      },
+      "id": "http-normalize",
+      "name": "POST Normalize Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        260
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Normalize Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST Normalize Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "417583c5-0eeb-408b-8f8f-d20a14bc85a2",
+  "activeVersionId": "417583c5-0eeb-408b-8f8f-d20a14bc85a2",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

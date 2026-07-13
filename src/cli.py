@@ -4,6 +4,16 @@ import sys
 from pathlib import Path
 
 from .city_registry import CityRegistryError, city_catalog_items, get_city_profile, validate_city_profiles
+from .pipeline_adapter import (
+    AdapterRunRequest,
+    PIPELINE_STAGES,
+    StageContractError,
+    create_run,
+    execute_stage,
+    get_run,
+    rebuild_run_index,
+    stage_summary_from_result,
+)
 from .pipeline_service import (
     InputValidationError,
     PathSafetyError,
@@ -29,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Execute accounting only when --execute is provided.")
     _add_common(run)
     run.add_argument("--execute", action="store_true", help="Required confirmation for formal execution.")
+    run.add_argument("--run-id", default=None, help="Optional externally supplied run id for adapters.")
     run.add_argument("--audit", action="store_true", help="Collect findings without declaring success for unknown types.")
     run.add_argument(
         "--unknown-type-policy",
@@ -36,6 +47,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Unknown business type policy. Defaults to error for run --execute.",
     )
+
+    for stage in ("intake", "normalize", "calculate", "reconcile", "report"):
+        stage_parser = sub.add_parser(stage, help=f"Execute the {stage} stage contract.")
+        _add_common(stage_parser)
+        stage_parser.add_argument("--run-id", default=None, help="Existing or new adapter run id.")
+        stage_parser.add_argument(
+            "--unknown-type-policy",
+            choices=["error", "report_only"],
+            default="error",
+            help="Unknown business type policy for stages that execute accounting.",
+        )
 
     cities = sub.add_parser("cities", help="Inspect and validate configured cities.")
     cities_sub = cities.add_subparsers(dest="cities_command", required=True)
@@ -50,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     storage_init.add_argument("--root", required=True, help="Finance data root.")
     storage_validate = storage_sub.add_parser("validate", help="Validate city storage directories and catalog.")
     storage_validate.add_argument("--root", required=True, help="Finance data root.")
+
+    sub.add_parser("rebuild-run-index", help="Rebuild the API run lookup index from run-directory truth files.")
     return parser
 
 
@@ -72,12 +96,28 @@ def main(argv=None) -> int:
             return _handle_cities(args)
         if args.command == "storage":
             return _handle_storage(args)
+        if args.command == "rebuild-run-index":
+            print(json.dumps(rebuild_run_index(), ensure_ascii=False, indent=2))
+            return 0
+        if args.command in {"intake", "normalize", "calculate", "reconcile", "report"}:
+            return _handle_stage(args)
         request = make_run_request(args)
+        if getattr(args, "run_id", None):
+            request = type(request)(
+                city_id=request.city_id,
+                input_path=request.input_path,
+                output_root=request.output_root,
+                mode=request.mode,
+                unknown_type_policy=request.unknown_type_policy,
+                requested_at=request.requested_at,
+                run_id=args.run_id,
+            )
         result = plan_request(request) if args.command == "plan" else run_request(request)
-        print(result.message)
-        if result.summary_path:
-            print(f"summary={result.summary_path}")
+        print(json.dumps(stage_summary_from_result(result), ensure_ascii=False, indent=2))
         return result.exit_code
+    except StageContractError as exc:
+        print(f"{exc.error_code}: {exc}", file=sys.stderr)
+        return exc.exit_code
     except PathSafetyError as exc:
         print(f"{exc.error_code}: {exc}", file=sys.stderr)
         return exc.exit_code
@@ -132,6 +172,26 @@ def _handle_storage(args) -> int:
         result = validate_storage(root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["valid"] else 3
+
+
+def _handle_stage(args) -> int:
+    request = AdapterRunRequest(
+        city_id=args.city,
+        input_path=Path(args.input),
+        output_root=Path(args.output),
+        mode="execute",
+        unknown_type_policy=args.unknown_type_policy,
+        run_id=args.run_id,
+    )
+    run = create_run(request) if not args.run_id else get_run(args.run_id)
+    result = None
+    stages = PIPELINE_STAGES[: PIPELINE_STAGES.index(args.command) + 1] if not args.run_id else (args.command,)
+    for stage in stages:
+        result = execute_stage(run["run_id"], stage)
+        if result["status"] not in {"success", "warning"}:
+            break
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] in {"success", "warning"} else 5
 
 
 if __name__ == "__main__":

@@ -1,0 +1,49 @@
+schema_version: 1
+pipeline_id: finance-detail-reconciliation
+profile_source: config/pipeline_profiles/standard-finance-pipeline.yaml
+status_values:
+  - pending
+  - running
+  - success
+  - warning
+  - failed
+  - rejected
+data_policy:
+  n8n_payload_scope: run_metadata_only
+  forbidden_payloads:
+    - billing_detail_rows
+    - normalized_detail_rows
+    - 290k_row_json
+  allowed_payloads:
+    - run_id
+    - city_id
+    - local_file_paths
+    - stage_status
+    - metrics
+    - artifact_paths
+stages:
+  - id: intake
+    profile_stage_refs: [manifest, field_mapping]
+    python_contract: src.pipeline_service.plan_request
+    input_schema: schemas/run-request.schema.json
+    output_schema: schemas/stage-result.schema.json
+  - id: normalize
+    profile_stage_refs: [normalization]
+    python_contract: src.pipeline_adapter.execute_stage
+    input_schema: schemas/run-request.schema.json
+    output_schema: schemas/stage-result.schema.json
+  - id: calculate
+    profile_stage_refs: [income, fees, crowd_cost]
+    python_contract: src.pipeline_adapter.execute_stage
+    input_schema: schemas/run-request.schema.json
+    output_schema: schemas/stage-result.schema.json
+  - id: reconcile
+    profile_stage_refs: [technical_reconciliation, result_contract]
+    python_contract: src.pipeline_service.run_request
+    input_schema: schemas/run-request.schema.json
+    output_schema: schemas/reconciliation-result.schema.json
+  - id: report
+    profile_stage_refs: [reporting]
+    python_contract: src.pipeline_adapter.get_artifacts
+    input_schema: schemas/run-request.schema.json
+    output_schema: schemas/artifact-manifest.schema.json

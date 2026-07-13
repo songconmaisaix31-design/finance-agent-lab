@@ -1,13 +1,15 @@
-import argparse
+﻿import argparse
 import hashlib
 import json
 import os
 import secrets
+import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from .city_registry import CityProfile, CityRegistryError, get_city_profile
 from .crowd_cost_contract import CrowdCostError, build_crowd_cost_result, crowd_result_for_summary
@@ -16,6 +18,7 @@ from .field_mapper import map_billing_sheet
 from .income_calc import compute_income
 from .manifest import sha256_file
 from .normalizer import load_billing_rows
+from .normalizer import NormalizedBillingRow
 from .reconcile import run_all_checks
 from .reconciliation_contract import (
     build_reconciliation_contract,
@@ -79,6 +82,20 @@ class InputChangedError(PipelineError):
     error_code = "INPUT_CHANGED"
 
 
+FOOD_BUSINESS = "food"
+RETAIL_BUSINESS = "retail"
+
+
+class StageDependencyError(PipelineError):
+    exit_code = 9
+    error_code = "STAGE_DEPENDENCY_NOT_SATISFIED"
+
+
+class ArtifactIntegrityError(PipelineError):
+    exit_code = 9
+    error_code = "ARTIFACT_INTEGRITY_FAILED"
+
+
 @dataclass(frozen=True)
 class RunRequest:
     city_id: str
@@ -99,6 +116,28 @@ class PipelineResult:
     summary_path: Path | None
     manifest_path: Path | None
     message: str
+
+
+@dataclass(frozen=True)
+class StageExecutionContext:
+    request: RunRequest
+    profile: CityProfile
+    input_path: Path
+    output_root: Path
+    run_id: str
+    run_dir: Path
+    artifacts_dir: Path
+    started_at: str
+
+
+@dataclass(frozen=True)
+class StageServiceResult:
+    stage: str
+    status: str
+    metrics: dict[str, str]
+    output_artifacts: list[dict[str, Any]]
+    message: str
+    result: dict[str, Any] | None = None
 
 
 def make_run_request(args: argparse.Namespace) -> RunRequest:
@@ -142,177 +181,37 @@ def run_request(request: RunRequest) -> PipelineResult:
     if request.mode == "plan":
         return plan_request(request)
 
-    profile = _load_profile(request.city_id)
-    input_path, output_root = _validate_paths(request.input_path, request.output_root, profile.city_id)
-    _validate_city_namespace_paths(profile, input_path, output_root)
-    if profile.rule_status == "missing":
-        raise CityRuleSetMissingError(f"Business rule set missing for city_id: {profile.city_id}")
-    _validate_required_inputs(input_path)
-
-    run_id = request.run_id or _generate_run_id(profile.city_id)
-    run_dir = output_root / "runs" / run_id
-    if run_dir.exists():
-        raise PathSafetyError(f"Run directory already exists: {run_id}")
-
-    artifacts_dir = run_dir / "artifacts"
-    artifacts_dir.mkdir(parents=True)
-    events_path = run_dir / "events.jsonl"
-    logger = EventLogger(events_path, run_id, profile.city_id)
-    started = utc_now_iso()
-    start_perf = time.perf_counter()
-    logger.event("info", "run_started", "request", "started")
-
-    before_manifest = _input_manifest(input_path)
+    context = create_stage_context(request, create_run_dir=True)
     status = "failed"
-    exit_code = 6
     error_code = None
-    error_message = None
-    artifact_entries = []
-    summary = {}
-    manifest = {}
-
+    start_perf = time.perf_counter()
+    logger = EventLogger(context.run_dir / "events.jsonl", context.run_id, context.profile.city_id)
+    logger.event("info", "run_started", "request", "started")
     try:
-        logger.event("info", "input_validated", "input", "success")
-        pipeline_data = _run_standard_pipeline(input_path, artifacts_dir, profile)
-        logger.event("info", "pipeline_completed", "pipeline", "success")
-
-        unknown = pipeline_data["unknown"]
-        unknown_income_count = len(unknown["unknown_income_types"])
-        unknown_delivery_count = len(unknown["unknown_delivery_types"])
-        unknown_crowd_count = len(unknown.get("unknown_crowd_cost_rows", []))
-        rejected_crowd_count = pipeline_data.get("costs", {}).get("crowd", {}).get("rejected_rows", 0)
-        should_block = (
-            request.unknown_type_policy == "error"
-            and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0)
-        )
-
-        if should_block:
-            status = "blocked"
-            exit_code = 5
-            error_code = UnknownBusinessTypeError.error_code
-            error_message = "Unknown or invalid business types detected"
-            logger.event("error", "unknown_types_blocked", "business_validation", "blocked", error_code)
-        elif request.mode == "audit" and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0):
-            status = "blocked"
-            exit_code = 5
-            error_code = UnknownBusinessTypeError.error_code
-            error_message = "Audit collected unknown business types"
-            logger.event("warning", "unknown_types_reported", "business_validation", "blocked", error_code)
-        else:
-            status = "success"
-            exit_code = 0
-
-        after_manifest = _input_manifest(input_path)
-        if before_manifest["files"] != after_manifest["files"]:
-            status = "failed"
-            exit_code = InputChangedError.exit_code
-            error_code = InputChangedError.error_code
-            error_message = "Input files changed during run"
-            logger.event("error", "input_changed", "input_integrity", "failed", error_code)
-        else:
-            logger.event("info", "input_unchanged", "input_integrity", "success")
-
-        artifact_entries = _artifact_entries(artifacts_dir)
-        unknown_doc = {
-            "schema_version": "1.0",
-            "run_id": run_id,
-            "status": status,
-            "unknown_type_policy": request.unknown_type_policy,
-            "unknown_income_types": unknown["unknown_income_types"],
-            "unknown_delivery_types": unknown["unknown_delivery_types"],
-            "unknown_crowd_cost_rows": unknown.get("unknown_crowd_cost_rows", []),
-            "created_at": utc_now_iso(),
-        }
-        atomic_write_json(run_dir / "unknown-types.json", unknown_doc)
-
-        logger.event("info", "reconciliation_started", "reconciliation", "started")
-        summary = _build_result_summary(
-            run_id, profile, status, pipeline_data, unknown_income_count,
-            unknown_delivery_count, artifact_entries, started,
-        )
-        manifest = _build_run_manifest(
-            run_id, profile, request, status, started, utc_now_iso(),
-            before_manifest, artifact_entries, exit_code, error_code,
-            error_message, logger.stage_names,
-        )
-        reconciliation = build_reconciliation_contract(
-            summary=summary,
-            manifest=manifest,
-            run_dir=run_dir,
-            request_context=_reconciliation_context(run_id, profile, request, status),
-            input_before=before_manifest,
-            input_after=after_manifest,
-        )
-
-        if status == "success" and reconciliation["status"] in {"failed", "blocked"}:
-            status = "blocked" if reconciliation["status"] == "blocked" else "failed"
-            exit_code = 5 if status == "blocked" else 6
-            error_code = "RECON_UPSTREAM_BLOCKED" if status == "blocked" else "RECONCILIATION_FAILED"
-            error_message = "Reconciliation blocked" if status == "blocked" else "Reconciliation failed"
-            summary = _build_result_summary(
-                run_id, profile, status, pipeline_data, unknown_income_count,
-                unknown_delivery_count, artifact_entries, started,
-            )
-            manifest = _build_run_manifest(
-                run_id, profile, request, status, started, utc_now_iso(),
-                before_manifest, artifact_entries, exit_code, error_code,
-                error_message, logger.stage_names,
-            )
-            reconciliation = build_reconciliation_contract(
-                summary=summary,
-                manifest=manifest,
-                run_dir=run_dir,
-                request_context=_reconciliation_context(run_id, profile, request, status),
-                input_before=before_manifest,
-                input_after=after_manifest,
-            )
-
-        _attach_reconciliation(summary, reconciliation)
-        for check in reconciliation["checks"]:
-            level = "error" if check["status"] in {"fail", "blocked"} else "info"
-            logger.event(
-                level,
-                "reconciliation_check_completed",
-                "reconciliation",
-                check["status"],
-                check.get("error_code"),
-                check_id=check["check_id"],
-                category=check["category"],
-            )
-        if reconciliation["status"] == "blocked":
-            logger.event("error", "reconciliation_blocked", "reconciliation", "blocked", "RECON_UPSTREAM_BLOCKED")
-        elif reconciliation["status"] == "failed":
-            logger.event("error", "reconciliation_failed", "reconciliation", "failed", "RECONCILIATION_FAILED")
-        logger.event("info", "reconciliation_completed", "reconciliation", reconciliation["status"])
-
-        summary = json_safe(summary)
-        manifest = json_safe(manifest)
-        reconciliation_report = json_safe(build_reconciliation_report(run_id, reconciliation))
-        validate_contract("run-result.schema.json", summary)
-        validate_contract("run-manifest.schema.json", manifest)
-        atomic_write_json(run_dir / "result-summary.json", summary)
-        atomic_write_json(run_dir / "run-manifest.json", manifest)
-        atomic_write_json(run_dir / "reconciliation-report.json", reconciliation_report)
-        logger.event("info", "contracts_written", "contract", "success")
-
+        for stage_fn in (
+            run_intake_stage,
+            run_normalize_stage,
+            run_calculate_stage,
+            run_reconcile_stage,
+            run_report_stage,
+        ):
+            result = stage_fn(context)
+            logger.event("info", f"{result.stage}_completed", result.stage, result.status)
+            if result.status not in {"success", "warning"}:
+                break
+        summary = _load_json(context.run_dir / "result-summary.json")
+        status = summary.get("status", result.status if result else "failed")
+        error_code = None if status == "success" else summary.get("error_code")
+        exit_code = 0 if status == "success" else 5 if status == "blocked" else 6
     except Exception as exc:
-        if isinstance(exc, PipelineError):
-            exit_code = exc.exit_code
-            error_code = exc.error_code
-            error_message = str(exc)
-        elif isinstance(exc, CrowdCostError):
-            exit_code = InputValidationError.exit_code
-            error_code = exc.error_code
-            error_message = exc.safe_message
-        else:
-            exit_code = 6
-            error_code = "PIPELINE_EXECUTION_FAILED"
-            error_message = str(exc)
-        logger.event("error", "pipeline_failed", "exception", "failed", error_code)
         if isinstance(exc, CrowdCostError):
             wrapped = InputValidationError(f"{exc.error_code}: {exc.safe_message}")
             wrapped.error_code = exc.error_code
+            error_code = exc.error_code
+            logger.event("error", "pipeline_failed", "exception", "failed", error_code)
             raise wrapped from exc
+        error_code = getattr(exc, "error_code", "PIPELINE_EXECUTION_FAILED")
+        logger.event("error", "pipeline_failed", "exception", "failed", error_code)
         raise
     finally:
         duration_ms = int((time.perf_counter() - start_perf) * 1000)
@@ -321,12 +220,628 @@ def run_request(request: RunRequest) -> PipelineResult:
     return PipelineResult(
         status=status,
         exit_code=exit_code,
-        run_id=run_id,
-        run_dir=run_dir,
-        summary_path=run_dir / "result-summary.json",
-        manifest_path=run_dir / "run-manifest.json",
-        message=f"{status} run_id={run_id}",
+        run_id=context.run_id,
+        run_dir=context.run_dir,
+        summary_path=context.run_dir / "result-summary.json",
+        manifest_path=context.run_dir / "run-manifest.json",
+        message=f"{status} run_id={context.run_id}",
     )
+
+
+def create_stage_context(request: RunRequest, *, run_id: str | None = None, create_run_dir: bool = False) -> StageExecutionContext:
+    profile = _load_profile(request.city_id)
+    input_path, output_root = _validate_paths(request.input_path, request.output_root, profile.city_id)
+    _validate_city_namespace_paths(profile, input_path, output_root)
+    if profile.rule_status == "missing":
+        raise CityRuleSetMissingError(f"Business rule set missing for city_id: {profile.city_id}")
+    _validate_required_inputs(input_path)
+
+    resolved_run_id = run_id or request.run_id or _generate_run_id(profile.city_id)
+    run_dir = output_root / "runs" / resolved_run_id
+    if create_run_dir and run_dir.exists():
+        raise PathSafetyError(f"Run directory already exists: {resolved_run_id}")
+    artifacts_dir = run_dir / "artifacts"
+    if create_run_dir:
+        artifacts_dir.mkdir(parents=True)
+    else:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+    return StageExecutionContext(
+        request=request,
+        profile=profile,
+        input_path=input_path,
+        output_root=output_root,
+        run_id=resolved_run_id,
+        run_dir=run_dir,
+        artifacts_dir=artifacts_dir,
+        started_at=request.requested_at or utc_now_iso(),
+    )
+
+
+def run_intake_stage(context: StageExecutionContext) -> StageServiceResult:
+    context.run_dir.mkdir(parents=True, exist_ok=True)
+    before_manifest = _input_manifest(context.input_path)
+    manifest = {
+        "schema_version": "1.0",
+        "producer_stage": "intake",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "city_id": context.profile.city_id,
+        "city_namespace": context.profile.storage_namespace,
+        "input_path": str(context.input_path),
+        "profile": {
+            "profile_id": context.profile.pipeline_profile.profile_id,
+            "version": context.profile.pipeline_profile.version,
+        },
+        "config": {
+            "sha256": context.profile.config_sha256,
+            "version": context.profile.schema_version,
+        },
+        **before_manifest,
+    }
+    run_context = {
+        "schema_version": "1.0",
+        "producer_stage": "intake",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "city_id": context.profile.city_id,
+        "input_path": str(context.input_path),
+        "output_root": str(context.output_root),
+        "run_dir": str(context.run_dir),
+        "mode": context.request.mode,
+        "unknown_type_policy": context.request.unknown_type_policy,
+        "requested_at": context.request.requested_at,
+        "config_hash": context.profile.config_sha256,
+    }
+    atomic_write_json(context.run_dir / "input-manifest.json", manifest)
+    atomic_write_json(context.run_dir / "run-context.json", run_context)
+    return StageServiceResult(
+        stage="intake",
+        status="success",
+        metrics={"input_file_count": str(manifest["file_count"])},
+        output_artifacts=[
+            _artifact_ref(context.run_dir, context.run_dir / "input-manifest.json", "intake"),
+            _artifact_ref(context.run_dir, context.run_dir / "run-context.json", "intake"),
+        ],
+        message=f"intake complete city={context.profile.city_id}",
+    )
+
+
+def run_normalize_stage(context: StageExecutionContext) -> StageServiceResult:
+    _require_file(context.run_dir / "input-manifest.json", "intake")
+    cfg = context.profile.config
+    normalized_dir = context.run_dir / "normalized-data"
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+    db_path = normalized_dir / "normalized.sqlite"
+
+    food_path = context.input_path / "billing_food.xlsx"
+    retail_path = context.input_path / "billing_retail.xlsx"
+    food_map = map_billing_sheet(str(food_path))
+    retail_map = map_billing_sheet(str(retail_path))
+    food_rows = load_billing_rows(str(food_path), food_map, FOOD_BUSINESS)
+    retail_rows = load_billing_rows(str(retail_path), retail_map, RETAIL_BUSINESS)
+    _write_normalized_sqlite(db_path, [*food_rows, *retail_rows])
+
+    rejected_rows = len(_invalid_rows(food_rows)) + len(_invalid_rows(retail_rows))
+    manifest = {
+        "schema_version": "1.0",
+        "producer_stage": "normalize",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "row_count": len(food_rows) + len(retail_rows),
+        "source_files": ["billing_food.xlsx", "billing_retail.xlsx"],
+        "normalized_artifact": _artifact_ref(context.run_dir, db_path, "normalize"),
+        "field_mapping_version": "field_mapper.v1",
+        "field_mappings": {
+            "food": _field_mapping_summary(food_map),
+            "retail": _field_mapping_summary(retail_map),
+        },
+        "unknown_columns": [],
+        "rejected_rows": rejected_rows,
+        "config_hash": context.profile.config_sha256,
+        "input_manifest_sha256": _load_json(context.run_dir / "input-manifest.json")["sha256"],
+    }
+    schema_report = {
+        "schema_version": "1.0",
+        "producer_stage": "normalize",
+        "run_id": context.run_id,
+        "storage": "sqlite",
+        "decimal_storage": "string",
+        "tables": {"billing_rows": len(food_rows) + len(retail_rows)},
+    }
+    atomic_write_json(context.run_dir / "normalization-manifest.json", manifest)
+    atomic_write_json(context.run_dir / "schema-report.json", schema_report)
+    return StageServiceResult(
+        stage="normalize",
+        status="success",
+        metrics={"normalized_row_count": str(manifest["row_count"]), "rejected_rows": str(rejected_rows)},
+        output_artifacts=[
+            manifest["normalized_artifact"],
+            _artifact_ref(context.run_dir, context.run_dir / "normalization-manifest.json", "normalize"),
+            _artifact_ref(context.run_dir, context.run_dir / "schema-report.json", "normalize"),
+        ],
+        message="normalize complete",
+    )
+
+
+def run_calculate_stage(context: StageExecutionContext) -> StageServiceResult:
+    normalization_manifest = _load_required_json(context.run_dir / "normalization-manifest.json", "normalize")
+    normalized_artifact = context.run_dir / normalization_manifest["normalized_artifact"]["path"]
+    _verify_artifact(normalization_manifest["normalized_artifact"], context.run_dir)
+    food_rows, retail_rows = _load_normalized_rows(normalized_artifact)
+    data = _calculate_pipeline_data(context.input_path, context.profile, food_rows, retail_rows)
+    result = {
+        "schema_version": "1.0",
+        "producer_stage": "calculate",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "input_artifacts": [normalization_manifest["normalized_artifact"]],
+        "config_hash": context.profile.config_sha256,
+        "pipeline_data": json_safe(data),
+    }
+    atomic_write_json(context.run_dir / "calculation-result.json", result)
+    manifest = {
+        "schema_version": "1.0",
+        "producer_stage": "calculate",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "input_artifacts": [normalization_manifest["normalized_artifact"]],
+        "output_artifacts": [_artifact_ref(context.run_dir, context.run_dir / "calculation-result.json", "calculate")],
+        "config_hash": context.profile.config_sha256,
+    }
+    atomic_write_json(context.run_dir / "calculation-manifest.json", manifest)
+    metrics = _metrics_from_pipeline_data(data)
+    metrics.update({
+        "crowd_total": str(data["costs"]["crowd"]["total"]),
+        "warnings": "0",
+    })
+    return StageServiceResult(
+        stage="calculate",
+        status="success",
+        metrics=metrics,
+        output_artifacts=manifest["output_artifacts"],
+        message="calculate complete",
+        result={"summary": metrics},
+    )
+
+
+def run_reconcile_stage(context: StageExecutionContext) -> StageServiceResult:
+    calculation = _load_required_json(context.run_dir / "calculation-result.json", "calculate")
+    calc_artifact = _artifact_ref(context.run_dir, context.run_dir / "calculation-result.json", "calculate")
+    _verify_artifact(calc_artifact, context.run_dir)
+    normalization_manifest = _load_required_json(context.run_dir / "normalization-manifest.json", "normalize")
+    normalized_artifact = context.run_dir / normalization_manifest["normalized_artifact"]["path"]
+    food_rows, retail_rows = _load_normalized_rows(normalized_artifact)
+    data = _restore_pipeline_data(calculation["pipeline_data"])
+    cfg = context.profile.config
+    recon = run_all_checks(
+        data["food_income"], data["retail_income"], data["food_team"], data["retail_team"],
+        data["food_crowd_bill"], data["retail_crowd_bill"], data["crowd_buckets"],
+        data["crowd_reconciliation"], {"all_unchanged": True}, food_rows, retail_rows,
+        cfg["_amount_tolerance_d"],
+    )
+    data["reconciliation"] = recon
+    calculation["pipeline_data"] = json_safe(data)
+    atomic_write_json(context.run_dir / "calculation-result.json", calculation)
+
+    quality = {
+        "schema_version": "1.0",
+        "producer_stage": "reconcile",
+        "contract_version": "1",
+        "run_id": context.run_id,
+        "status": "success" if recon.get("all_passed") else "failed",
+        "reconciliation_errors": 0 if recon.get("all_passed") else 1,
+        "input_artifacts": [calc_artifact, normalization_manifest["normalized_artifact"]],
+    }
+    stage_report = {
+        "schema_version": "1.0",
+        "producer_stage": "reconcile",
+        "run_id": context.run_id,
+        "technical_reconciliation": json_safe(recon),
+        "quality_gate": quality,
+    }
+    atomic_write_json(context.run_dir / "stage-reconciliation-report.json", stage_report)
+    atomic_write_json(context.run_dir / "quality-gate-result.json", quality)
+    status = "success" if quality["status"] == "success" else "failed"
+    return StageServiceResult(
+        stage="reconcile",
+        status=status,
+        metrics={"reconciliation_errors": str(quality["reconciliation_errors"])},
+        output_artifacts=[
+            _artifact_ref(context.run_dir, context.run_dir / "stage-reconciliation-report.json", "reconcile"),
+            _artifact_ref(context.run_dir, context.run_dir / "quality-gate-result.json", "reconcile"),
+        ],
+        message="reconcile complete",
+        result=quality,
+    )
+
+
+def run_report_stage(context: StageExecutionContext) -> StageServiceResult:
+    calculation = _load_required_json(context.run_dir / "calculation-result.json", "calculate")
+    quality = _load_required_json(context.run_dir / "quality-gate-result.json", "reconcile")
+    if quality.get("status") not in {"success", "warning"}:
+        raise StageDependencyError("Report stage requires a passing reconciliation quality gate")
+    normalization_manifest = _load_required_json(context.run_dir / "normalization-manifest.json", "normalize")
+    normalized_artifact = context.run_dir / normalization_manifest["normalized_artifact"]["path"]
+    food_rows, retail_rows = _load_normalized_rows(normalized_artifact)
+    data = _restore_pipeline_data(calculation["pipeline_data"])
+    data["reconciliation"] = _restore_pipeline_data(data["reconciliation"])
+
+    unknown = data["unknown"]
+    unknown_income_count = len(unknown["unknown_income_types"])
+    unknown_delivery_count = len(unknown["unknown_delivery_types"])
+    unknown_crowd_count = len(unknown.get("unknown_crowd_cost_rows", []))
+    rejected_crowd_count = data.get("costs", {}).get("crowd", {}).get("rejected_rows", 0)
+    should_block = (
+        context.request.unknown_type_policy == "error"
+        and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0)
+    )
+    audit_block = (
+        context.request.mode == "audit"
+        and (unknown_income_count > 0 or unknown_delivery_count > 0 or unknown_crowd_count > 0 or rejected_crowd_count > 0)
+    )
+    status = "blocked" if should_block or audit_block else "success"
+    exit_code = 5 if should_block or audit_block else 0
+    error_code = UnknownBusinessTypeError.error_code if should_block or audit_block else None
+    error_message = (
+        "Audit collected unknown business types"
+        if audit_block else "Unknown or invalid business types detected"
+        if should_block else None
+    )
+
+    report_path = context.artifacts_dir / f"{context.profile.city_id}-synthetic-report.xlsx"
+    run_info = _report_run_info(context)
+    generate_report(
+        str(report_path), run_info, data["food_income"], data["retail_income"], data["food_hq"], data["retail_hq"],
+        data["food_team"], data["retail_team"], data["crowd_buckets"], data["reconciliation"]["bill_cost_comparisons"],
+        data["crowd_reconciliation"], data["food_income"]["unknown_types"], data["retail_income"]["unknown_types"],
+        _invalid_rows(food_rows), _invalid_rows(retail_rows), data["unknown"]["unknown_delivery_types"],
+        data["reconciliation"], [],
+    )
+    artifact_entries = _artifact_entries(context.artifacts_dir)
+    input_before = _load_json(context.run_dir / "input-manifest.json")
+    input_after = _input_manifest(context.input_path)
+    if input_before.get("files") != input_after.get("files"):
+        status = "failed"
+        exit_code = InputChangedError.exit_code
+        error_code = InputChangedError.error_code
+        error_message = "Input files changed during run"
+
+    unknown_doc = {
+        "schema_version": "1.0",
+        "producer_stage": "report",
+        "run_id": context.run_id,
+        "status": status,
+        "unknown_type_policy": context.request.unknown_type_policy,
+        "unknown_income_types": unknown["unknown_income_types"],
+        "unknown_delivery_types": unknown["unknown_delivery_types"],
+        "unknown_crowd_cost_rows": unknown.get("unknown_crowd_cost_rows", []),
+        "created_at": utc_now_iso(),
+    }
+    atomic_write_json(context.run_dir / "unknown-types.json", unknown_doc)
+
+    summary = _build_result_summary(
+        context.run_id, context.profile, status, data, unknown_income_count,
+        unknown_delivery_count, artifact_entries, context.started_at,
+    )
+    manifest = _build_run_manifest(
+        context.run_id, context.profile, context.request, status, context.started_at, utc_now_iso(),
+        input_before, artifact_entries, exit_code, error_code, error_message,
+        ["intake", "normalize", "calculate", "reconcile", "report"],
+    )
+    reconciliation = build_reconciliation_contract(
+        summary=summary,
+        manifest=manifest,
+        run_dir=context.run_dir,
+        request_context=_reconciliation_context(context.run_id, context.profile, context.request, status),
+        input_before=input_before,
+        input_after=input_after,
+    )
+    if status == "success" and reconciliation["status"] in {"failed", "blocked"}:
+        status = "blocked" if reconciliation["status"] == "blocked" else "failed"
+        exit_code = 5 if status == "blocked" else 6
+        error_code = "RECON_UPSTREAM_BLOCKED" if status == "blocked" else "RECONCILIATION_FAILED"
+        error_message = "Reconciliation blocked" if status == "blocked" else "Reconciliation failed"
+        summary = _build_result_summary(
+            context.run_id, context.profile, status, data, unknown_income_count,
+            unknown_delivery_count, artifact_entries, context.started_at,
+        )
+        manifest = _build_run_manifest(
+            context.run_id, context.profile, context.request, status, context.started_at, utc_now_iso(),
+            input_before, artifact_entries, exit_code, error_code, error_message,
+            ["intake", "normalize", "calculate", "reconcile", "report"],
+        )
+        reconciliation = build_reconciliation_contract(
+            summary=summary,
+            manifest=manifest,
+            run_dir=context.run_dir,
+            request_context=_reconciliation_context(context.run_id, context.profile, context.request, status),
+            input_before=input_before,
+            input_after=input_after,
+        )
+    _attach_reconciliation(summary, reconciliation)
+    summary = json_safe(summary)
+    manifest = json_safe(manifest)
+    reconciliation_report = json_safe(build_reconciliation_report(context.run_id, reconciliation))
+    validate_contract("run-result.schema.json", summary)
+    validate_contract("run-manifest.schema.json", manifest)
+    atomic_write_json(context.run_dir / "result-summary.json", summary)
+    atomic_write_json(context.run_dir / "run-manifest.json", manifest)
+    atomic_write_json(context.run_dir / "reconciliation-report.json", reconciliation_report)
+    artifact_manifest = {
+        "schema_version": "1.0",
+        "producer_stage": "report",
+        "run_id": context.run_id,
+        "artifacts": artifact_entries,
+    }
+    atomic_write_json(context.run_dir / "artifact-manifest.json", artifact_manifest)
+    return StageServiceResult(
+        stage="report",
+        status="success" if status == "success" else "rejected" if status == "blocked" else "failed",
+        metrics={
+            **_metrics_from_pipeline_data(data),
+            "warnings": str(summary["validation"]["warnings"]),
+            "errors": str(summary["validation"]["reconciliation_errors"]),
+            "artifact_count": str(len(artifact_entries)),
+            "report_count": str(sum(1 for item in artifact_entries if item["name"].endswith(".xlsx"))),
+        },
+        output_artifacts=[
+            *[_artifact_ref(context.run_dir, context.run_dir / item["path"], "report") for item in artifact_entries],
+            _artifact_ref(context.run_dir, context.run_dir / "result-summary.json", "report"),
+            _artifact_ref(context.run_dir, context.run_dir / "run-manifest.json", "report"),
+            _artifact_ref(context.run_dir, context.run_dir / "artifact-manifest.json", "report"),
+        ],
+        message=f"{status} run_id={context.run_id}",
+        result={"summary_path": str(context.run_dir / "result-summary.json"), "manifest_path": str(context.run_dir / "run-manifest.json")},
+    )
+
+
+NORMALIZED_COLUMNS = [
+    "source_file", "source_sheet", "source_row", "billing_date", "business_category",
+    "order_id", "order_type", "delivery_type", "service_package_type",
+    "settlement_amount", "gross_transaction_amount", "net_transaction_amount",
+    "merchant_id", "merchant_name", "completed_at", "remark",
+    "agent_delivery_subsidy", "amount_valid", "amount_error",
+]
+
+
+def _write_normalized_sqlite(path: Path, rows: list[NormalizedBillingRow]):
+    if path.exists():
+        path.unlink()
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE billing_rows (
+              source_file TEXT, source_sheet TEXT, source_row INTEGER,
+              billing_date TEXT, business_category TEXT, order_id TEXT,
+              order_type TEXT, delivery_type TEXT, service_package_type TEXT,
+              settlement_amount TEXT, gross_transaction_amount TEXT,
+              net_transaction_amount TEXT, merchant_id TEXT, merchant_name TEXT,
+              completed_at TEXT, remark TEXT, agent_delivery_subsidy TEXT,
+              amount_valid INTEGER, amount_error TEXT
+            )
+            """
+        )
+        for row in rows:
+            data = asdict(row)
+            conn.execute(
+                f"INSERT INTO billing_rows ({','.join(NORMALIZED_COLUMNS)}) VALUES ({','.join('?' for _ in NORMALIZED_COLUMNS)})",
+                [_sqlite_value(data[column]) for column in NORMALIZED_COLUMNS],
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_normalized_rows(path: Path) -> tuple[list[NormalizedBillingRow], list[NormalizedBillingRow]]:
+    if not path.exists():
+        raise ArtifactIntegrityError(f"Normalized artifact missing: {path.name}")
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = [_row_from_sqlite(dict(row)) for row in conn.execute("SELECT * FROM billing_rows ORDER BY source_file, source_row")]
+    finally:
+        conn.close()
+    food = [row for row in rows if row.business_category == FOOD_BUSINESS]
+    retail = [row for row in rows if row.business_category == RETAIL_BUSINESS]
+    return food, retail
+
+
+def _row_from_sqlite(data: dict[str, Any]) -> NormalizedBillingRow:
+    return NormalizedBillingRow(
+        source_file=data["source_file"],
+        source_sheet=data["source_sheet"],
+        source_row=int(data["source_row"]),
+        billing_date=data["billing_date"],
+        business_category=data["business_category"],
+        order_id=data["order_id"],
+        order_type=data["order_type"],
+        delivery_type=data["delivery_type"],
+        service_package_type=data["service_package_type"],
+        settlement_amount=_optional_decimal(data["settlement_amount"]),
+        gross_transaction_amount=_optional_decimal(data["gross_transaction_amount"]),
+        net_transaction_amount=_optional_decimal(data["net_transaction_amount"]),
+        merchant_id=data["merchant_id"],
+        merchant_name=data["merchant_name"],
+        completed_at=data["completed_at"],
+        remark=data["remark"],
+        agent_delivery_subsidy=_optional_decimal(data["agent_delivery_subsidy"]),
+        amount_valid=bool(data["amount_valid"]),
+        amount_error=data["amount_error"] or "",
+    )
+
+
+def _sqlite_value(value):
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if value is None:
+        return ""
+    return value
+
+
+def _optional_decimal(value: str | None) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    return Decimal(str(value))
+
+
+def _calculate_pipeline_data(
+    input_path: Path,
+    profile: CityProfile,
+    food_rows: list[NormalizedBillingRow],
+    retail_rows: list[NormalizedBillingRow],
+) -> dict:
+    cfg = profile.config
+    food_income = compute_income(food_rows, cfg["food_income_whitelist"])
+    retail_income = compute_income(retail_rows, cfg["retail_income_whitelist"])
+    food_hq = compute_hq_fee(food_income, cfg["_headquarters_fee_rate_d"])
+    retail_hq = compute_hq_fee(retail_income, cfg["_headquarters_fee_rate_d"])
+    food_team = compute_team_delivery_cost(
+        food_rows, cfg["food_delivery_categories"],
+        cfg["_team_group_unit_cost_d"], cfg["_team_normal_unit_cost_d"],
+    )
+    retail_team = compute_team_delivery_cost(
+        retail_rows, cfg["retail_delivery_categories"],
+        cfg["_team_group_unit_cost_d"], cfg["_team_normal_unit_cost_d"],
+    )
+    food_crowd_bill = compute_bill_crowd_order_counts(food_rows, cfg["food_delivery_categories"], positive_only=True)
+    retail_crowd_bill = compute_bill_crowd_order_counts(retail_rows, cfg["retail_delivery_categories"], positive_only=True)
+    crowd_cost_file = input_path / cfg["crowd_cost"].get("input_file_name", "crowd_cost.xlsx")
+    crowd_cost_result = build_crowd_cost_result(crowd_cost_file, cfg)
+    crowd_buckets = crowd_cost_result["raw_buckets"]
+    crowd_reconciliation = {
+        "all_passed": True,
+        "checks": [],
+        "capability_status": "partial_unverified",
+    }
+    unknown_delivery = _unknown_delivery(food_rows, retail_rows, cfg)
+    return {
+        "food_income": food_income,
+        "retail_income": retail_income,
+        "food_hq": food_hq,
+        "retail_hq": retail_hq,
+        "food_team": food_team,
+        "retail_team": retail_team,
+        "food_crowd_bill": food_crowd_bill,
+        "retail_crowd_bill": retail_crowd_bill,
+        "crowd_buckets": crowd_buckets,
+        "crowd_reconciliation": crowd_reconciliation,
+        "reconciliation": {"all_passed": False, "bill_cost_comparisons": []},
+        "unknown": {
+            "unknown_income_types": [
+                {"business": FOOD_BUSINESS, **u} for u in food_income["unknown_types"]
+            ] + [
+                {"business": RETAIL_BUSINESS, **u} for u in retail_income["unknown_types"]
+            ],
+            "unknown_delivery_types": unknown_delivery,
+            "unknown_crowd_cost_rows": crowd_cost_result["unknown_rows"],
+        },
+        "costs": {
+            "crowd": crowd_result_for_summary(crowd_cost_result),
+        },
+        "capabilities": {
+            "crowd_cost": "complete" if crowd_cost_result["status"] == "complete" else "blocked",
+            "reconciliation": "partial_unverified",
+            "report": "generated",
+        },
+    }
+
+
+def _metrics_from_pipeline_data(data: dict) -> dict[str, str]:
+    return {
+        "food_income_total": decimal_string(data["food_income"]["total_settlement"]),
+        "retail_income_total": decimal_string(data["retail_income"]["total_settlement"]),
+        "food_hq_fee": decimal_string(data["food_hq"]["hq_fee"]),
+        "retail_hq_fee": decimal_string(data["retail_hq"]["hq_fee"]),
+        "food_team_delivery_cost": decimal_string(data["food_team"]["total_team_cost"]),
+        "retail_team_delivery_cost": decimal_string(data["retail_team"]["total_team_cost"]),
+        "food_order_count": str(data["food_income"]["total_distinct_orders"]),
+        "retail_order_count": str(data["retail_income"]["total_distinct_orders"]),
+    }
+
+
+def _restore_pipeline_data(value):
+    if isinstance(value, dict):
+        return {key: _restore_pipeline_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_pipeline_data(item) for item in value]
+    if isinstance(value, str) and _looks_decimal(value):
+        return Decimal(value)
+    return value
+
+
+def _looks_decimal(value: str) -> bool:
+    if not value:
+        return False
+    allowed = set("0123456789.-")
+    return set(value) <= allowed and any(ch.isdigit() for ch in value)
+
+
+def _field_mapping_summary(mapping) -> dict[str, Any]:
+    return {
+        "source_file": Path(mapping.source_file).name,
+        "source_sheet": mapping.source_sheet,
+        "header_row": mapping.header_row,
+        "data_start_row": mapping.data_start_row,
+        "columns": sorted(mapping.column_map),
+    }
+
+
+def _report_run_info(context: StageExecutionContext) -> dict:
+    cfg = context.profile.config
+    return {
+        "run_id": context.run_id,
+        "city": context.profile.display_name,
+        "agent_id": cfg["agent_id"],
+        "billing_date": cfg["billing_date"],
+        "headquarters_fee_rate": str(cfg["headquarters_fee_rate"]),
+        "team_group_unit_cost": str(cfg["team_delivery"]["group_unit_cost"]),
+        "team_normal_unit_cost": str(cfg["team_delivery"]["normal_unit_cost"]),
+        "started_at": utc_now_iso(),
+        "capability_note": "Synthetic smoke run; crowd cost extraction is characterized with unverified business rules. Full reconciliation is not complete.",
+    }
+
+
+def _artifact_ref(run_dir: Path, path: Path, producer_stage: str) -> dict[str, Any]:
+    if not path.exists():
+        raise ArtifactIntegrityError(f"Artifact missing: {path}")
+    return {
+        "schema_version": "1.0",
+        "producer_stage": producer_stage,
+        "name": path.name,
+        "path": path.relative_to(run_dir).as_posix(),
+        "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if path.suffix.lower() == ".xlsx" else "application/octet-stream",
+        "sha256": sha256_file(str(path)),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _verify_artifact(artifact: dict[str, Any], run_dir: Path):
+    path = run_dir / artifact["path"]
+    if not path.exists():
+        raise ArtifactIntegrityError(f"Required artifact missing: {artifact['path']}")
+    current = sha256_file(str(path))
+    if current != artifact.get("sha256"):
+        raise ArtifactIntegrityError(f"Artifact hash mismatch: {artifact['path']}")
+
+
+def _require_file(path: Path, stage: str):
+    if not path.exists():
+        raise StageDependencyError(f"{stage} artifact missing: {path.name}")
+
+
+def _load_required_json(path: Path, producer_stage: str) -> dict:
+    _require_file(path, producer_stage)
+    return _load_json(path)
+
+
+def _load_json(path: Path | None) -> dict[str, Any]:
+    if not path or not Path(path).exists():
+        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _load_profile(city_id: str) -> CityProfile:
@@ -444,8 +959,8 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
     retail_path = input_path / "billing_retail.xlsx"
     food_map = map_billing_sheet(str(food_path))
     retail_map = map_billing_sheet(str(retail_path))
-    food_rows = load_billing_rows(str(food_path), food_map, "餐饮")
-    retail_rows = load_billing_rows(str(retail_path), retail_map, "零售")
+    food_rows = load_billing_rows(str(food_path), food_map, FOOD_BUSINESS)
+    retail_rows = load_billing_rows(str(retail_path), retail_map, RETAIL_BUSINESS)
 
     food_income = compute_income(food_rows, cfg["food_income_whitelist"])
     retail_income = compute_income(retail_rows, cfg["retail_income_whitelist"])
@@ -481,13 +996,13 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
     report_path = artifacts_dir / f"{profile.city_id}-synthetic-report.xlsx"
     run_info = {
         "run_id": artifacts_dir.parent.name,
-        "城市": profile.display_name,
-        "代理商ID": cfg["agent_id"],
-        "核算日期": cfg["billing_date"],
-        "总部抽点比例": str(cfg["headquarters_fee_rate"]),
-        "专送拼团单均成本": str(cfg["team_delivery"]["group_unit_cost"]),
-        "专送正常单单均成本": str(cfg["team_delivery"]["normal_unit_cost"]),
-        "开始时间": utc_now_iso(),
+        "city": profile.display_name,
+        "agent_id": cfg["agent_id"],
+        "billing_date": cfg["billing_date"],
+        "headquarters_fee_rate": str(cfg["headquarters_fee_rate"]),
+        "team_group_unit_cost": str(cfg["team_delivery"]["group_unit_cost"]),
+        "team_normal_unit_cost": str(cfg["team_delivery"]["normal_unit_cost"]),
+        "started_at": utc_now_iso(),
         "capability_note": "Synthetic smoke run; crowd cost extraction is characterized with unverified business rules. Full reconciliation is not complete.",
     }
     generate_report(
@@ -507,9 +1022,9 @@ def _run_standard_pipeline(input_path: Path, artifacts_dir: Path, profile: CityP
         "reconciliation": recon,
         "unknown": {
             "unknown_income_types": [
-                {"business": "餐饮", **u} for u in food_income["unknown_types"]
+                {"business": FOOD_BUSINESS, **u} for u in food_income["unknown_types"]
             ] + [
-                {"business": "零售", **u} for u in retail_income["unknown_types"]
+                {"business": RETAIL_BUSINESS, **u} for u in retail_income["unknown_types"]
             ],
             "unknown_delivery_types": unknown_delivery,
             "unknown_crowd_cost_rows": crowd_cost_result["unknown_rows"],
@@ -532,7 +1047,7 @@ def _unknown_delivery(food_rows, retail_rows, cfg: dict) -> list[dict]:
         for category in group.values()
     }
     unknown = []
-    for business, rows in [("餐饮", food_rows), ("零售", retail_rows)]:
+    for business, rows in [(FOOD_BUSINESS, food_rows), (RETAIL_BUSINESS, retail_rows)]:
         counts = {}
         for row in rows:
             if row.delivery_type and row.delivery_type not in allowed:

@@ -1,0 +1,28 @@
+flowchart TD
+  A["Manual Trigger / FIN-00"] --> B["Create Run /api/v1/runs"]
+  B --> C["FIN-10 Intake"]
+  C --> Cg{"Intake Gate"}
+  Cg -- success --> D["FIN-20 Normalize"]
+  Cg -- failed --> Z["FIN-90 Error"]
+  D --> Dg{"Normalize Gate"}
+  Dg -- success --> E["FIN-30 Calculate"]
+  Dg -- failed --> Z
+  E --> Eg{"Calculate Gate"}
+  Eg -- success --> F["FIN-40 Reconcile"]
+  Eg -- failed --> Z
+  F --> Fg{"Quality Gate"}
+  Fg -- success --> G["FIN-50 Report"]
+  Fg -- failed --> Z
+
+  C -. writes .-> C1["input-manifest.json\nrun-context.json"]
+  D -. consumes .-> C1
+  D -. writes .-> D1["normalized-data/normalized.sqlite\nnormalization-manifest.json\nschema-report.json"]
+  E -. consumes .-> D1
+  E -. writes .-> E1["calculation-result.json\ncalculation-manifest.json"]
+  F -. consumes .-> E1
+  F -. writes .-> F1["stage-reconciliation-report.json\nquality-gate-result.json"]
+  G -. consumes .-> C1
+  G -. consumes .-> D1
+  G -. consumes .-> E1
+  G -. consumes .-> F1
+  G -. writes .-> G1["artifacts/*.xlsx\nresult-summary.json\nrun-manifest.json\nreconciliation-report.json\nartifact-manifest.json"]

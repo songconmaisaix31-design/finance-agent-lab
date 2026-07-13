@@ -101,3 +101,33 @@ Safety notes:
 - The legacy `python -m src.pipeline` entrypoint is deprecated and does not run accounting by default.
 - Do not copy `guan` rules into other cities without approval.
 - Do not read or write across city namespaces.
+
+## n8n Pipeline Adapter
+
+The n8n migration package lives under:
+
+- `orchestration/pipeline.yaml`
+- `quality-gates.yaml`
+- `src/pipeline_adapter.py`
+- `src/api.py`
+- `infra/n8n/`
+- `workflows/`
+- `docs/n8n-migration/`
+
+n8n is orchestration-only. Python continues to own Excel processing, Decimal calculations, field mapping, fee calculation, reconciliation, and report generation. n8n passes only `run_id`, paths, statuses, metrics, and artifact paths through HTTP.
+
+Local n8n uses the explicit image version `n8nio/n8n:2.26.8` and binds to:
+
+```text
+http://127.0.0.1:5678
+```
+
+The FastAPI adapter runs as `src.api:app` and exposes:
+
+```text
+GET  /health
+POST /runs
+GET  /runs/{run_id}
+POST /runs/{run_id}/stages/{stage}
+GET  /runs/{run_id}/artifacts
+```

@@ -1,0 +1,730 @@
+{
+  "updatedAt": "2026-06-29T16:03:35.694Z",
+  "createdAt": "2026-06-29T16:03:35.694Z",
+  "id": "fin00master",
+  "name": "FIN-00 Master",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "FIN-00 Master\nManual MVP path: trigger, stage order, gates, report summary, and error routing.\nOnly run_id/status/metrics/artifact paths move through n8n."
+      },
+      "id": "sticky-note",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "city_id",
+              "name": "city_id",
+              "value": "guan",
+              "type": "string"
+            },
+            {
+              "id": "input_path",
+              "name": "input_path",
+              "value": "/finance-data/guan/incoming",
+              "type": "string"
+            },
+            {
+              "id": "output_root",
+              "name": "output_root",
+              "value": "/finance-data/guan",
+              "type": "string"
+            },
+            {
+              "id": "unknown_type_policy",
+              "name": "unknown_type_policy",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "mode",
+              "name": "mode",
+              "value": "execute",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-request",
+      "name": "Run Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -640,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FINANCE_PIPELINE_API_URL + '/api/v1/runs'}}",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{JSON.stringify($json)}}",
+        "options": {
+          "timeout": "={{Number($env.PIPELINE_HTTP_TIMEOUT_MS || 600000)}}"
+        },
+        "specifyBody": "json",
+        "retryOnFail": false
+      },
+      "id": "create-run",
+      "name": "Create Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -360,
+        120
+      ],
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin10intake",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-intake",
+      "name": "FIN-10 Intake",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -80,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin20normalize",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-normalize",
+      "name": "FIN-20 Normalize",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin30calculate",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-calculate",
+      "name": "FIN-30 Calculate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin40reconcile",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-reconcile",
+      "name": "FIN-40 Reconcile",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-ok",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "no-errors",
+              "leftValue": "={{Number($json.metrics?.errors || 0)}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "quality-gate",
+      "name": "Quality Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1880,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin50report",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-report",
+      "name": "FIN-50 Report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fin90error",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "exec-error",
+      "name": "FIN-90 Error",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2720,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "intake-gate-status-ok",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "intake-gate",
+      "name": "Intake Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "normalize-gate-status-ok",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "normalize-gate",
+      "name": "Normalize Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        760,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "calculate-gate-status-ok",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "calculate-gate",
+      "name": "Calculate Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "run_id",
+              "name": "run_id",
+              "value": "={{$json.run_id || null}}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "={{$json.status || null}}",
+              "type": "string"
+            },
+            {
+              "id": "city_id",
+              "name": "city_id",
+              "value": "={{$json.city_id || null}}",
+              "type": "string"
+            },
+            {
+              "id": "row_count",
+              "name": "row_count",
+              "value": "={{$json.metrics?.normalized_row_count || $json.metrics?.row_count || null}}",
+              "type": "string"
+            },
+            {
+              "id": "food_income_total",
+              "name": "food_income_total",
+              "value": "={{$json.metrics?.food_income_total || null}}",
+              "type": "string"
+            },
+            {
+              "id": "retail_income_total",
+              "name": "retail_income_total",
+              "value": "={{$json.metrics?.retail_income_total || null}}",
+              "type": "string"
+            },
+            {
+              "id": "food_hq_fee",
+              "name": "food_hq_fee",
+              "value": "={{$json.metrics?.food_hq_fee || null}}",
+              "type": "string"
+            },
+            {
+              "id": "retail_hq_fee",
+              "name": "retail_hq_fee",
+              "value": "={{$json.metrics?.retail_hq_fee || null}}",
+              "type": "string"
+            },
+            {
+              "id": "food_team_delivery_cost",
+              "name": "food_team_delivery_cost",
+              "value": "={{$json.metrics?.food_team_delivery_cost || null}}",
+              "type": "string"
+            },
+            {
+              "id": "retail_team_delivery_cost",
+              "name": "retail_team_delivery_cost",
+              "value": "={{$json.metrics?.retail_team_delivery_cost || null}}",
+              "type": "string"
+            },
+            {
+              "id": "crowd_total",
+              "name": "crowd_total",
+              "value": "={{$json.metrics?.crowd_total || null}}",
+              "type": "string"
+            },
+            {
+              "id": "reconciliation_status",
+              "name": "reconciliation_status",
+              "value": "={{$json.result?.reconciliation_status || ($json.metrics?.errors === \"0\" ? \"passed\" : null)}}",
+              "type": "string"
+            },
+            {
+              "id": "warnings",
+              "name": "warnings",
+              "value": "={{$json.metrics?.warnings || null}}",
+              "type": "string"
+            },
+            {
+              "id": "errors",
+              "name": "errors",
+              "value": "={{$json.metrics?.errors || null}}",
+              "type": "string"
+            },
+            {
+              "id": "report_path",
+              "name": "report_path",
+              "value": "={{$json.artifacts?.[0]?.absolute_path || $json.artifacts?.[0]?.path || null}}",
+              "type": "string"
+            },
+            {
+              "id": "duration_seconds",
+              "name": "duration_seconds",
+              "value": "={{$json.duration_ms !== undefined && $json.duration_ms !== null ? Number($json.duration_ms) / 1000 : null}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "run-summary",
+      "name": "Run Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "???????????\n????????? /finance-data/...????? Windows D:\\... ???"
+      },
+      "id": "mvp-note-params",
+      "name": "Note params",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Intake\n??????? input manifest?"
+      },
+      "id": "mvp-note-intake",
+      "name": "Note intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Normalize\n?? normalized SQLite?????? n8n?"
+      },
+      "id": "mvp-note-normalize",
+      "name": "Note normalize",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Calculate\n?? Python ????????"
+      },
+      "id": "mvp-note-calculate",
+      "name": "Note calculate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Reconcile\n???????????"
+      },
+      "id": "mvp-note-reconcile",
+      "name": "Note reconcile",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Report\n?? 14 Sheet Excel ? artifact manifest?"
+      },
+      "id": "mvp-note-report",
+      "name": "Note report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2120,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Error\n?????????? FIN-90?"
+      },
+      "id": "mvp-note-error",
+      "name": "Note error",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Parameters": {
+      "main": [
+        [
+          {
+            "node": "Create Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Run": {
+      "main": [
+        [
+          {
+            "node": "FIN-10 Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIN-10 Intake": {
+      "main": [
+        [
+          {
+            "node": "Intake Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake Gate": {
+      "main": [
+        [
+          {
+            "node": "FIN-20 Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FIN-90 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIN-20 Normalize": {
+      "main": [
+        [
+          {
+            "node": "Normalize Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Gate": {
+      "main": [
+        [
+          {
+            "node": "FIN-30 Calculate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FIN-90 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIN-30 Calculate": {
+      "main": [
+        [
+          {
+            "node": "Calculate Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Gate": {
+      "main": [
+        [
+          {
+            "node": "FIN-40 Reconcile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FIN-90 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIN-40 Reconcile": {
+      "main": [
+        [
+          {
+            "node": "Quality Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Gate": {
+      "main": [
+        [
+          {
+            "node": "FIN-50 Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FIN-90 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIN-50 Report": {
+      "main": [
+        [
+          {
+            "node": "Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "df664486-244f-4d4e-8788-82acef14efde",
+  "activeVersionId": null,
+  "versionCounter": 8,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

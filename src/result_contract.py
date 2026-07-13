@@ -39,14 +39,20 @@ def json_safe(value):
 def atomic_write_json(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(json_safe(data), ensure_ascii=False, indent=2), encoding="utf-8")
+    with temp.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(json_safe(data), ensure_ascii=False, indent=2))
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temp, path)
 
 
 def atomic_write_text(path: Path, text: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(text, encoding="utf-8")
+    with temp.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temp, path)
 
 

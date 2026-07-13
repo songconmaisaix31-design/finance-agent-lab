@@ -6,6 +6,7 @@ __pycache__/
 *.pyo
 .DS_Store
 logs/
+*.log
 reports/
 .env
 .env.*
@@ -22,6 +23,15 @@ secrets.*
 *.db
 *.sqlite
 *.sqlite3
+.n8n/
+n8n_data/
+infra/n8n/.n8n/
+infra/n8n/n8n_data/
+infra/n8n/workflow-export/
+infra/n8n/workflow-exports/
+infra/n8n/tmp/
+tmp/
+temp/
 .venv/
 venv/
 .pytest_cache/
